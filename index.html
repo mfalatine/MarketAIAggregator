@@ -9,7 +9,7 @@
 <body>
     <div class="app-container">
         <header>
-            <h1>Market AI Aggregator <span class="version">X4</span></h1>
+            <h1>Market AI Aggregator <span class="version">X5</span></h1>
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                 <button class="tab-btn" data-tab="history">History</button>
@@ -456,8 +456,8 @@
                             <li>Add context: "Note: NVDA earnings was yesterday"</li>
                         </ul>
                         <p class="note">Edits are one-time only. The saved template is not affected. Use Admin to change permanently.</p>
-                        <p><strong>Run Briefing</strong> — Sends the prompt to the Anthropic API with web search. Result is displayed and auto-saved to History. If the prompt was edited, it's flagged as "modified from template."</p>
-                        <p><strong>Model Override</strong> — The dropdown lets you override the default model for a single run. Use Sonnet for daily briefings, switch to Opus for deeper weekend reviews.</p>
+                        <p><strong>Run Briefing</strong> — Sends the prompt to the selected model's API (Anthropic or Gemini) with web search enabled. Result is displayed and auto-saved to History. If the prompt was edited, it's flagged as "modified from template."</p>
+                        <p><strong>Model Override</strong> — The dropdown lets you override the default model for a single run. Use Sonnet for daily briefings, Opus for deeper weekend reviews, or Gemini Flash for free runs.</p>
                         <p class="note">Only affects this run. Default is not changed.</p>
                         <p><strong>Regenerate</strong> — Re-runs the same prompt. New API call. Previous version remains in History.</p>
                         <p><strong>Copy / Export HTML / Print</strong> — Local actions only, no API calls. Check "Include Settings Snapshot" to bundle configuration details with the export.</p>
@@ -474,10 +474,11 @@
 
                     <div class="guide-section" id="guide-settings">
                         <h4>Settings</h4>
+                        <p><strong>Theme</strong> — Choose from Light, Dark, or Go Blue! (Maize &amp; Blue). Applied instantly via visual swatches.</p>
                         <p><strong>API Keys</strong> — Separate keys for Anthropic and Google Gemini. Stored in localStorage only. Each is validated with a lightweight test call when saved.</p>
-                        <p><strong>Default Model</strong> — Sets which model is pre-selected on Dashboard. Can be overridden per-run.</p>
-                        <p><strong>Topics</strong> — Toggle which topics are included when building a prompt. Each has a prompt hint (editable in Admin).</p>
-                        <p><strong>Watchlist</strong> — Your tracked tickers, injected into the prompt so Claude searches for news about these symbols.</p>
+                        <p><strong>Default Model</strong> — Sets which model is pre-selected on Dashboard. Provider label (Anthropic/Google) shown next to each model. Can be overridden per-run.</p>
+                        <p><strong>Topics</strong> — Toggle which topics are included when building a prompt. Grouped by category, each with a short description explaining what the category covers. Each topic has a prompt hint (editable in Admin).</p>
+                        <p><strong>Watchlist</strong> — Your tracked tickers, injected into the prompt so the AI searches for news about these symbols.</p>
                         <p><strong>Watchlist Coverage</strong> — What type of information to gather per ticker (news, earnings, analyst changes, etc.).</p>
                         <p><strong>Output Style</strong> — Controls response length, depth, and max_tokens sent to the API.</p>
                         <p><strong>Custom Instructions</strong> — Free-text appended to every prompt for persistent preferences.</p>
@@ -486,13 +487,14 @@
                     <div class="guide-section" id="guide-admin">
                         <h4>Admin</h4>
                         <p>Admin controls <strong>what options exist</strong>. Settings controls <strong>which options are active</strong>. Think of Admin as building the menu, Settings as ordering from it.</p>
-                        <p><strong>Topic Management</strong> — Add, edit, or remove topics. Each has a display name, category, and prompt hint that tells Claude what to search for.</p>
-                        <p><strong>Category Management</strong> — Add or rename topic groupings. Sort order controls display sequence.</p>
-                        <p><strong>Watchlist Coverage Types</strong> — Define what types of coverage are available for watchlist tickers.</p>
-                        <p><strong>Prompt Editor</strong> — Direct access to the system prompt and user prompt template with variable placeholders.</p>
-                        <p class="warning">⚠ The system prompt defines Claude's persona and rules. Edit carefully — bad system prompts produce bad briefings. Use "Reset to Default" if things go sideways.</p>
-                        <p><strong>Briefing Styles</strong> — Add custom styles beyond the defaults.</p>
-                        <p><strong>Model Management</strong> — Add new models from Anthropic or Google Gemini. Each model has a provider field that determines which API to call.</p>
+                        <p class="note">All admin sections support inline editing — click the ▸ arrow on any item to expand its edit form in place. No separate page or modal required.</p>
+                        <p><strong>Topic Management</strong> — Add, edit, or remove topics. Each has a display name, category, key, and prompt hint that tells the AI what to search for. Filter by category to narrow the list.</p>
+                        <p><strong>Category Management</strong> — Add or rename topic groupings. Each category has a name, sort order (controls display sequence), and a short description that appears in Settings to help users understand what the category covers.</p>
+                        <p><strong>Watchlist Coverage Types</strong> — Define what types of coverage are available for watchlist tickers. Each has a name and a prompt instruction that gets injected into the briefing request.</p>
+                        <p><strong>Prompt Editor</strong> — Direct access to the system prompt and user prompt template with variable placeholders. Preview the fully assembled prompt to see exactly what gets sent.</p>
+                        <p class="warning">⚠ The system prompt defines the AI's persona and rules. Edit carefully — bad system prompts produce bad briefings. Use "Reset to Default" if things go sideways.</p>
+                        <p><strong>Briefing Styles</strong> — Add custom styles with name, word target, max tokens, and description.</p>
+                        <p><strong>Model Management</strong> — Add new models from Anthropic or Google Gemini. Each model has a provider, API model ID, display name, and cost note. The provider field determines which API endpoint is called.</p>
                     </div>
 
                     <div class="guide-section" id="guide-data">
@@ -519,17 +521,18 @@
 
                     <div class="guide-section" id="guide-trouble">
                         <h4>Troubleshooting</h4>
-                        <p><strong>"API key invalid"</strong> — Check your key at console.anthropic.com. Ensure it starts with "sk-ant-". Keys are project-scoped — make sure it has Messages API access.</p>
+                        <p><strong>"API key invalid" (Anthropic)</strong> — Check your key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>. Ensure it starts with "sk-ant-". Keys are project-scoped — make sure it has Messages API access.</p>
+                        <p><strong>"API key invalid" (Gemini)</strong> — Check your key at <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a>. Ensure it starts with "AIza". Verify the key has Generative Language API enabled.</p>
                         <p><strong>Briefing is vague or missing data:</strong></p>
                         <ul>
                             <li>Check prompt hints in Admin — vague hints produce vague results</li>
-                            <li>Try Opus for deeper synthesis</li>
+                            <li>Try a different model (Opus for deeper synthesis, Gemini Pro for an alternative perspective)</li>
                             <li>Add specific instructions in the editable prompt</li>
                             <li>Web search can miss recent events — try Regenerate</li>
                         </ul>
                         <p><strong>Briefing is too long / too short</strong> — Adjust the style in Settings or edit max_tokens for the style in Admin.</p>
                         <p><strong>Response cut off mid-sentence</strong> — max_tokens too low. Go to Admin → Briefing Styles → increase max_tokens.</p>
-                        <p><strong>"Rate limited"</strong> — Wait a minute and try again. Rare with single daily briefings.</p>
+                        <p><strong>"Rate limited"</strong> — Wait a minute and try again. Gemini free tier limits: Flash 10 RPM / 250 RPD, Pro 5 RPM / 100 RPD. Rare with single daily briefings on Anthropic.</p>
                     </div>
 
                     <div class="guide-section" id="guide-cost">
@@ -546,11 +549,17 @@
                                 <tr><td>Opus + Deep Dive</td><td>~$0.40–0.60</td></tr>
                                 <tr><td>Daily Sonnet/Standard</td><td>~$2–3/month</td></tr>
                                 <tr><td>Daily Opus/Standard</td><td>~$8–12/month</td></tr>
-                                <tr><td>Gemini Flash (any style)</td><td>Free (within limits)</td></tr>
+                                <tr><td>Gemini Flash (any style)</td><td>Free (10 RPM, 250 RPD)</td></tr>
+                                <tr><td>Gemini Pro (any style)</td><td>Free (5 RPM, 100 RPD)</td></tr>
                             </tbody>
                         </table>
-                        <p>Check Anthropic usage at <strong>console.anthropic.com/usage</strong></p>
-                        <p>Gemini free tier: 10 RPM, 250 RPD. Get your key at <strong>aistudio.google.com</strong></p>
+                        <p>Check Anthropic usage at <a href="https://platform.claude.com/usage" target="_blank" rel="noopener"><strong>platform.claude.com/usage</strong></a></p>
+                        <p>Gemini free tier models and limits — get your key at <a href="https://aistudio.google.com" target="_blank" rel="noopener"><strong>aistudio.google.com</strong></a>:</p>
+                        <ul>
+                            <li><strong>gemini-2.5-flash</strong> — 10 RPM, 250 RPD</li>
+                            <li><strong>gemini-2.5-pro</strong> — 5 RPM, 100 RPD</li>
+                            <li><strong>gemini-2.0-flash</strong> — 10 RPM, 1,500 RPD</li>
+                        </ul>
                     </div>
                 </div>
             </div>
