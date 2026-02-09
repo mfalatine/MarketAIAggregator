@@ -32,8 +32,9 @@ const DEFAULT_ADMIN = {
         { id: 'deep_dive', name: 'Deep Dive', word_target: 2000, max_tokens: 3000, description: 'Full analysis' }
     ],
     models: [
-        { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet', cost_note: 'Fast, ~$0.05/run' },
-        { id: 'claude-opus-4-6', name: 'Opus', cost_note: 'Deep synthesis, ~$0.30/run' }
+        { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet', provider: 'anthropic', cost_note: 'Fast, ~$0.05/run' },
+        { id: 'claude-opus-4-6', name: 'Opus', provider: 'anthropic', cost_note: 'Deep synthesis, ~$0.30/run' },
+        { id: 'gemini-2.5-flash', name: 'Gemini Flash', provider: 'google', cost_note: 'Free tier, fast' }
     ],
     system_prompt: 'You are a senior macro strategist preparing a daily market briefing for a trader focused on S&P 500 and AI infrastructure equities.\n\nRules:\n- Distinguish confirmed data from forecasts/estimates\n- Include probability estimates where available (e.g., CME FedWatch)\n- Prioritize actionable catalysts\n- Note source for key data points\n- Flag anything that changed since yesterday',
     user_prompt_template: 'Generate market briefing for {date}.\nCover the following topics:\n{enabled_topics}\nWatchlist: {watchlist}\nWatchlist coverage: {coverage_types}\nStyle: {briefing_style}\n{custom_instructions}',
@@ -49,7 +50,8 @@ const DEFAULT_SETTINGS = {
     watchlist: ['NVDA', 'PLTR', 'AMD', 'MRVL', 'VST'],
     enabled_coverage: ['price_moving_news', 'upcoming_earnings'],
     active_style: 'concise',
-    custom_instructions: 'Focus on actionable catalysts. Distinguish confirmed data from forecasts. Include probability estimates where available.'
+    custom_instructions: 'Focus on actionable catalysts. Distinguish confirmed data from forecasts. Include probability estimates where available.',
+    theme: 'dark'
 };
 
 // ================================================================
@@ -57,6 +59,20 @@ const DEFAULT_SETTINGS = {
 // ================================================================
 function loadApiKey() { return localStorage.getItem('mb_api_key') || null; }
 function saveApiKey(key) { localStorage.setItem('mb_api_key', key); }
+function loadGeminiApiKey() { return localStorage.getItem('mb_gemini_api_key') || null; }
+function saveGeminiApiKey(key) { localStorage.setItem('mb_gemini_api_key', key); }
+
+function getApiKeyForProvider(provider) {
+    if (provider === 'google') return loadGeminiApiKey();
+    return loadApiKey();
+}
+
+function getProviderForModel(modelId) {
+    const admin = loadAdmin();
+    if (!admin) return 'anthropic';
+    const model = admin.models.find(m => m.id === modelId);
+    return model?.provider || 'anthropic';
+}
 
 function loadSettings() {
     try { const s = localStorage.getItem('mb_settings'); return s ? JSON.parse(s) : null; }
@@ -84,6 +100,36 @@ function saveHistory(arr) {
 }
 
 // ================================================================
+// SECTION 2B: THEME MANAGEMENT
+// ================================================================
+function applyTheme(theme) {
+    const valid = ['light', 'dark', 'umich'];
+    if (!valid.includes(theme)) theme = 'light';
+    if (theme === 'light') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+    // Update swatch selection UI if rendered
+    document.querySelectorAll('.theme-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.theme === theme);
+        const radio = opt.querySelector('input[type="radio"]');
+        if (radio) radio.checked = (opt.dataset.theme === theme);
+    });
+}
+
+function initThemeSelector() {
+    const container = document.getElementById('theme-options');
+    if (!container) return;
+    container.addEventListener('click', function(e) {
+        const option = e.target.closest('.theme-option');
+        if (!option) return;
+        const theme = option.dataset.theme;
+        applyTheme(theme);
+    });
+}
+
+// ================================================================
 // SECTION 3: INITIALIZATION & FIRST-RUN
 // ================================================================
 function initializeApp() {
@@ -91,11 +137,34 @@ function initializeApp() {
     if (!loadSettings()) saveSettings(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
     if (!localStorage.getItem('mb_history')) saveHistory([]);
 
-    if (!loadApiKey()) {
-        switchTab('settings');
-        document.getElementById('settings-banner').innerHTML = '<div class="banner banner-warning"><strong>API Key Required</strong> — Enter your Anthropic API key below to get started.</div>';
-    } else {
-        switchTab('dashboard');
+    // Migration: add provider field to existing models that lack it
+    const admin = loadAdmin();
+    let needsSave = false;
+    if (admin && admin.models) {
+        for (const m of admin.models) {
+            if (!m.provider) {
+                if (m.id.startsWith('gemini-')) { m.provider = 'google'; }
+                else { m.provider = 'anthropic'; }
+                needsSave = true;
+            }
+        }
+        // Add Gemini Flash if no Google models exist
+        if (!admin.models.some(m => m.provider === 'google')) {
+            admin.models.push({ id: 'gemini-2.5-flash', name: 'Gemini Flash', provider: 'google', cost_note: 'Free tier, fast' });
+            needsSave = true;
+        }
+        if (needsSave) saveAdmin(admin);
+    }
+
+    // Apply saved theme immediately
+    const settings = loadSettings();
+    applyTheme(settings.theme || 'light');
+    initThemeSelector();
+
+    switchTab('dashboard');
+
+    if (!loadApiKey() && !loadGeminiApiKey()) {
+        document.getElementById('dashboard-banner').innerHTML = '<div class="banner banner-warning"><strong>No API Key</strong> — Go to <a href="#" onclick="switchTab(\'settings\');return false" style="font-weight:700;text-decoration:underline">Settings</a> to add your API key.</div>';
     }
 }
 
@@ -285,23 +354,92 @@ function parseAPIResponse(apiResponse) {
     return { text: textParts.join('\n'), model: apiResponse.model, usage: apiResponse.usage, citations };
 }
 
-async function validateApiKey(key) {
+async function callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens) {
+    const apiKey = loadGeminiApiKey();
+    if (!apiKey) throw new Error('Google Gemini API key not configured');
+
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent';
+
+    const body = {
+        contents: [{ parts: [{ text: userPrompt }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        tools: [{ google_search: {} }],
+        generationConfig: { maxOutputTokens: maxTokens }
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 429) throw new Error('Rate limited. Please wait a moment and try again.');
+        throw new Error(err.error?.message || 'Gemini API error: ' + response.status);
+    }
+    return response.json();
+}
+
+function parseGeminiResponse(apiResponse) {
+    const textParts = [];
+    if (apiResponse.candidates && apiResponse.candidates.length > 0) {
+        const content = apiResponse.candidates[0].content;
+        if (content && content.parts) {
+            for (const part of content.parts) {
+                if (part.text) textParts.push(part.text);
+            }
+        }
+    }
+    return { text: textParts.join('\n'), model: '', usage: null, citations: [] };
+}
+
+async function callAPI(systemPrompt, userPrompt, modelId, maxTokens) {
+    const provider = getProviderForModel(modelId);
+    if (provider === 'google') {
+        const raw = await callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens);
+        return parseGeminiResponse(raw);
+    } else {
+        const raw = await callAnthropicAPI(systemPrompt, userPrompt, modelId, maxTokens);
+        return parseAPIResponse(raw);
+    }
+}
+
+async function validateApiKey(key, provider) {
     try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': key,
-                'anthropic-version': '2023-06-01',
-                'anthropic-dangerous-direct-browser-access': 'true'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 10,
-                messages: [{ role: 'user', content: 'Hi' }]
-            })
-        });
-        return response.ok || response.status === 200;
+        if (provider === 'google') {
+            const response = await fetch(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: 'Hi' }] }],
+                        generationConfig: { maxOutputTokens: 10 }
+                    })
+                }
+            );
+            return response.ok;
+        } else {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': key,
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-dangerous-direct-browser-access': 'true'
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-5-20250929',
+                    max_tokens: 10,
+                    messages: [{ role: 'user', content: 'Hi' }]
+                })
+            });
+            return response.ok || response.status === 200;
+        }
     } catch(e) { return false; }
 }
 
@@ -379,12 +517,29 @@ function renderDashboard() {
 }
 
 function buildPrompt() {
-    const prompt = assemblePrompt();
-    originalPrompt = prompt;
-    document.getElementById('prompt-textarea').value = prompt;
-    document.getElementById('prompt-section').style.display = '';
-    document.getElementById('briefing-section').style.display = 'none';
-    document.getElementById('status-section').style.display = 'none';
+    const selectedModelId = document.getElementById('dashboard-model').value;
+    const provider = getProviderForModel(selectedModelId);
+    const key = getApiKeyForProvider(provider);
+    if (!key) {
+        const providerName = provider === 'google' ? 'Google Gemini' : 'Anthropic';
+        showToast(providerName + ' API key required — go to Settings to add your key', 'error');
+        return;
+    }
+    try {
+        const prompt = assemblePrompt();
+        if (!prompt) {
+            showToast('Could not assemble prompt — check Admin settings', 'error');
+            return;
+        }
+        originalPrompt = prompt;
+        document.getElementById('prompt-textarea').value = prompt;
+        document.getElementById('prompt-section').style.display = '';
+        document.getElementById('briefing-section').style.display = 'none';
+        document.getElementById('status-section').style.display = 'none';
+    } catch (e) {
+        console.error('buildPrompt error:', e);
+        showToast('Error building prompt: ' + e.message, 'error');
+    }
 }
 
 function resetPrompt() {
@@ -398,9 +553,17 @@ async function runBriefing() {
     const settings = loadSettings();
     if (!admin || !settings) return;
 
+    const selectedModelId = document.getElementById('dashboard-model').value;
+    const provider = getProviderForModel(selectedModelId);
+    const key = getApiKeyForProvider(provider);
+    if (!key) {
+        const providerName = provider === 'google' ? 'Google Gemini' : 'Anthropic';
+        showToast(providerName + ' API key required — go to Settings to add your key', 'error');
+        return;
+    }
+
     const userPrompt = document.getElementById('prompt-textarea').value;
     const isModified = userPrompt !== originalPrompt;
-    const selectedModelId = document.getElementById('dashboard-model').value;
     const selectedModel = admin.models.find(m => m.id === selectedModelId);
     const activeStyle = admin.styles.find(s => s.id === settings.active_style);
     const maxTokens = activeStyle ? activeStyle.max_tokens : 2000;
@@ -411,8 +574,7 @@ async function runBriefing() {
     document.getElementById('btn-run').disabled = true;
 
     try {
-        const rawResponse = await callAnthropicAPI(admin.system_prompt, userPrompt, selectedModelId, maxTokens);
-        const parsed = parseAPIResponse(rawResponse);
+        const parsed = await callAPI(admin.system_prompt, userPrompt, selectedModelId, maxTokens);
 
         const record = {
             id: generateId(),
@@ -628,16 +790,22 @@ function renderSettings() {
     const settings = loadSettings();
     if (!admin || !settings) return;
 
-    // API Key
+    // API Keys
     const key = loadApiKey();
     const keyInput = document.getElementById('settings-apikey');
     if (key) keyInput.value = key;
-    updateApiKeyStatus(!!key);
+    updateApiKeyStatus(!!key, 'apikey-status');
+
+    const geminiKey = loadGeminiApiKey();
+    const geminiKeyInput = document.getElementById('settings-gemini-key');
+    if (geminiKey) geminiKeyInput.value = geminiKey;
+    updateApiKeyStatus(!!geminiKey, 'gemini-key-status');
 
     // Models
-    document.getElementById('settings-models').innerHTML = admin.models.map(m =>
-        '<label class="radio-option"><input type="radio" name="settings-model" value="' + m.id + '"' + (m.id === settings.default_model ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(m.name) + '</div><div class="option-desc">' + escapeHtml(m.cost_note) + '</div></div></label>'
-    ).join('');
+    document.getElementById('settings-models').innerHTML = admin.models.map(m => {
+        const providerLabel = (m.provider === 'google') ? 'Google' : 'Anthropic';
+        return '<label class="radio-option"><input type="radio" name="settings-model" value="' + m.id + '"' + (m.id === settings.default_model ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(m.name) + ' <span style="font-size:0.72rem;color:var(--text-faint)">(' + providerLabel + ')</span></div><div class="option-desc">' + escapeHtml(m.cost_note) + '</div></div></label>';
+    }).join('');
 
     // Topics grouped by category
     const cats = [...admin.categories].sort((a, b) => a.sort - b.sort);
@@ -669,6 +837,9 @@ function renderSettings() {
 
     // Custom Instructions
     document.getElementById('settings-instructions').value = settings.custom_instructions || '';
+
+    // Theme
+    applyTheme(settings.theme || 'light');
 }
 
 function renderWatchlistTags() {
@@ -693,8 +864,9 @@ function removeWatchlistTicker(ticker) {
     renderWatchlistTags();
 }
 
-function updateApiKeyStatus(valid) {
-    const el = document.getElementById('apikey-status');
+function updateApiKeyStatus(valid, elementId) {
+    const el = document.getElementById(elementId || 'apikey-status');
+    if (!el) return;
     if (valid) {
         el.innerHTML = '<span class="status-dot green"></span> Connected';
     } else {
@@ -702,8 +874,8 @@ function updateApiKeyStatus(valid) {
     }
 }
 
-function toggleApiKeyVis() {
-    const input = document.getElementById('settings-apikey');
+function toggleApiKeyVis(inputId) {
+    const input = document.getElementById(inputId || 'settings-apikey');
     const btn = input.nextElementSibling;
     if (input.type === 'password') { input.type = 'text'; btn.textContent = 'Hide'; }
     else { input.type = 'password'; btn.textContent = 'Show'; }
@@ -713,14 +885,27 @@ async function saveAllSettings() {
     const apiKey = document.getElementById('settings-apikey').value.trim();
     if (apiKey) {
         saveApiKey(apiKey);
-        const valid = await validateApiKey(apiKey);
-        updateApiKeyStatus(valid);
-        if (!valid) showToast('API key could not be validated. It was saved but may not work.', 'error');
+        const valid = await validateApiKey(apiKey, 'anthropic');
+        updateApiKeyStatus(valid, 'apikey-status');
+        if (!valid) showToast('Anthropic API key could not be validated. It was saved but may not work.', 'error');
+    }
+
+    const geminiKey = document.getElementById('settings-gemini-key').value.trim();
+    if (geminiKey) {
+        saveGeminiApiKey(geminiKey);
+        const valid = await validateApiKey(geminiKey, 'google');
+        updateApiKeyStatus(valid, 'gemini-key-status');
+        if (!valid) showToast('Gemini API key could not be validated. It was saved but may not work.', 'error');
+    }
+
+    if (apiKey || geminiKey) {
         document.getElementById('settings-banner').innerHTML = '';
+        document.getElementById('dashboard-banner').innerHTML = '';
     }
 
     const modelRadio = document.querySelector('input[name="settings-model"]:checked');
     const styleRadio = document.querySelector('input[name="settings-style"]:checked');
+    const themeRadio = document.querySelector('input[name="settings-theme"]:checked');
     const enabledTopics = Array.from(document.querySelectorAll('input[name="settings-topic"]:checked')).map(cb => cb.value);
     const enabledCoverage = Array.from(document.querySelectorAll('input[name="settings-coverage"]:checked')).map(cb => cb.value);
 
@@ -730,7 +915,8 @@ async function saveAllSettings() {
         watchlist: [...settingsWatchlist],
         enabled_coverage: enabledCoverage,
         active_style: styleRadio ? styleRadio.value : 'concise',
-        custom_instructions: document.getElementById('settings-instructions').value
+        custom_instructions: document.getElementById('settings-instructions').value,
+        theme: themeRadio ? themeRadio.value : 'light'
     };
     saveSettings(settings);
     showToast('Settings saved', 'success');
@@ -748,9 +934,34 @@ function renderAdmin() {
     renderModelManagement();
 }
 
+// --- Inline Edit Helper ---
+function toggleInlineEdit(itemId, type) {
+    const wrapper = document.getElementById('admin-wrapper-' + itemId);
+    if (!wrapper) return;
+    const form = wrapper.querySelector('.admin-inline-form');
+    const arrow = wrapper.querySelector('.admin-expand-arrow');
+    if (form.classList.contains('visible')) {
+        form.classList.remove('visible');
+        arrow.textContent = '▸';
+    } else {
+        // Close any other open forms in same list
+        wrapper.closest('.admin-section').querySelectorAll('.admin-inline-form.visible').forEach(f => {
+            f.classList.remove('visible');
+            const a = f.closest('.admin-item-wrapper').querySelector('.admin-expand-arrow');
+            if (a) a.textContent = '▸';
+        });
+        form.classList.add('visible');
+        arrow.textContent = '▾';
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
 function toggleAdminForm(formId) {
     const form = document.getElementById(formId);
     form.classList.toggle('visible');
+    if (form.classList.contains('visible')) {
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 }
 
 // --- Topics ---
@@ -767,12 +978,35 @@ function renderTopicManagement() {
         ? admin.topics.filter(t => t.category === currentFilter)
         : admin.topics;
 
+    const catOptions = admin.categories.sort((a,b) => a.sort - b.sort).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
+
     document.getElementById('admin-topic-list').innerHTML = topics.map(t => {
         const cat = admin.categories.find(c => c.id === t.category);
-        return '<div class="admin-item"><div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(t.name) + '</div><div class="admin-item-meta">Key: ' + escapeHtml(t.id) + (cat ? ' | Category: ' + escapeHtml(cat.name) : '') + '</div>' + (t.prompt_hint ? '<div class="admin-item-hint">' + escapeHtml(t.prompt_hint) + '</div>' : '') + '</div><div class="admin-item-actions"><button class="btn btn-icon btn-sm" onclick="editTopic(\'' + t.id + '\')" title="Edit">✎</button><button class="btn btn-icon btn-sm btn-danger" onclick="deleteTopic(\'' + t.id + '\')" title="Delete">🗑</button></div></div>';
+        return '<div class="admin-item-wrapper" id="admin-wrapper-' + t.id + '">' +
+            '<div class="admin-item">' +
+                '<div class="admin-item-info">' +
+                    '<div class="admin-item-name">' + escapeHtml(t.name) + '</div>' +
+                    '<div class="admin-item-meta">Key: ' + escapeHtml(t.id) + (cat ? ' | Category: ' + escapeHtml(cat.name) : '') + '</div>' +
+                    (t.prompt_hint ? '<div class="admin-item-hint">' + escapeHtml(t.prompt_hint) + '</div>' : '') +
+                '</div>' +
+                '<div class="admin-item-actions">' +
+                    '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + t.id + '\',\'topic\')" title="Edit">▸</button>' +
+                    '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteTopic(\'' + t.id + '\')" title="Delete">🗑</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="admin-inline-form">' +
+                '<div class="field"><label>Category</label><select class="inline-topic-category">' + catOptions.replace('value="' + t.category + '"', 'value="' + t.category + '" selected') + '</select></div>' +
+                '<div class="field"><label>Display Name</label><input type="text" class="inline-topic-name" value="' + escapeHtml(t.name) + '"></div>' +
+                '<div class="field"><label>Key</label><input type="text" class="inline-topic-key" value="' + escapeHtml(t.id) + '"></div>' +
+                '<div class="field"><label>Prompt Hint</label><textarea class="inline-topic-hint" rows="2">' + escapeHtml(t.prompt_hint || '') + '</textarea></div>' +
+                '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveTopicInline(\'' + t.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + t.id + '\')">Cancel</button></div>' +
+            '</div>' +
+        '</div>';
     }).join('');
 
-    document.getElementById('topic-form-category').innerHTML = admin.categories.sort((a,b) => a.sort - b.sort).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
+    // Update the add-new form's category dropdown
+    const addCatSelect = document.getElementById('topic-form-category');
+    if (addCatSelect) addCatSelect.innerHTML = catOptions;
 }
 
 function autoGenerateKey() {
@@ -780,44 +1014,42 @@ function autoGenerateKey() {
     document.getElementById('topic-form-key').value = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 30);
 }
 
-function editTopic(id) {
+function saveTopicInline(originalId) {
+    const wrapper = document.getElementById('admin-wrapper-' + originalId);
+    if (!wrapper) return;
     const admin = loadAdmin();
-    const topic = admin.topics.find(t => t.id === id);
-    if (!topic) return;
-    document.getElementById('topic-form-category').value = topic.category;
-    document.getElementById('topic-form-name').value = topic.name;
-    document.getElementById('topic-form-key').value = topic.id;
-    document.getElementById('topic-form-hint').value = topic.prompt_hint || '';
-    document.getElementById('topic-form-edit-id').value = id;
-    document.getElementById('topic-form').classList.add('visible');
-    document.getElementById('btn-add-topic').textContent = '− Cancel';
+    const category = wrapper.querySelector('.inline-topic-category').value;
+    const name = wrapper.querySelector('.inline-topic-name').value.trim();
+    const key = wrapper.querySelector('.inline-topic-key').value.trim();
+    const hint = wrapper.querySelector('.inline-topic-hint').value.trim();
+
+    if (!name || !key) { showToast('Name and key are required', 'error'); return; }
+
+    const idx = admin.topics.findIndex(t => t.id === originalId);
+    if (idx !== -1) {
+        if (originalId !== key) {
+            const settings = loadSettings();
+            const si = settings.enabled_topics.indexOf(originalId);
+            if (si !== -1) settings.enabled_topics[si] = key;
+            saveSettings(settings);
+        }
+        admin.topics[idx] = { id: key, name, category, prompt_hint: hint };
+    }
+    saveAdmin(admin);
+    renderTopicManagement();
+    showToast('Topic saved', 'success');
 }
 
 function saveTopic() {
     const admin = loadAdmin();
-    const editId = document.getElementById('topic-form-edit-id').value;
     const category = document.getElementById('topic-form-category').value;
     const name = document.getElementById('topic-form-name').value.trim();
     const key = document.getElementById('topic-form-key').value.trim();
     const hint = document.getElementById('topic-form-hint').value.trim();
 
     if (!name || !key) { showToast('Name and key are required', 'error'); return; }
-
-    if (editId) {
-        const idx = admin.topics.findIndex(t => t.id === editId);
-        if (idx !== -1) {
-            if (editId !== key) {
-                const settings = loadSettings();
-                const si = settings.enabled_topics.indexOf(editId);
-                if (si !== -1) settings.enabled_topics[si] = key;
-                saveSettings(settings);
-            }
-            admin.topics[idx] = { id: key, name, category, prompt_hint: hint };
-        }
-    } else {
-        if (admin.topics.find(t => t.id === key)) { showToast('Topic key already exists', 'error'); return; }
-        admin.topics.push({ id: key, name, category, prompt_hint: hint });
-    }
+    if (admin.topics.find(t => t.id === key)) { showToast('Topic key already exists', 'error'); return; }
+    admin.topics.push({ id: key, name, category, prompt_hint: hint });
     saveAdmin(admin);
     cancelTopicForm();
     renderTopicManagement();
@@ -842,7 +1074,6 @@ function cancelTopicForm() {
     document.getElementById('topic-form-name').value = '';
     document.getElementById('topic-form-key').value = '';
     document.getElementById('topic-form-hint').value = '';
-    document.getElementById('topic-form-edit-id').value = '';
     document.getElementById('btn-add-topic').textContent = '+ Add Topic';
 }
 
@@ -851,38 +1082,50 @@ function renderCategoryManagement() {
     const admin = loadAdmin();
     if (!admin) return;
     document.getElementById('admin-category-list').innerHTML = admin.categories.sort((a,b) => a.sort - b.sort).map(c =>
-        '<div class="admin-item"><div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-meta">Sort: ' + c.sort + '</div></div><div class="admin-item-actions"><button class="btn btn-icon btn-sm" onclick="editCategory(\'' + c.id + '\')" title="Edit">✎</button><button class="btn btn-icon btn-sm btn-danger" onclick="deleteCategory(\'' + c.id + '\')" title="Delete">🗑</button></div></div>'
+        '<div class="admin-item-wrapper" id="admin-wrapper-' + c.id + '">' +
+            '<div class="admin-item">' +
+                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-meta">Sort: ' + c.sort + '</div></div>' +
+                '<div class="admin-item-actions">' +
+                    '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + c.id + '\',\'category\')" title="Edit">▸</button>' +
+                    '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteCategory(\'' + c.id + '\')" title="Delete">🗑</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="admin-inline-form">' +
+                '<div class="input-row"><div class="field"><label>Name</label><input type="text" class="inline-cat-name" value="' + escapeHtml(c.name) + '"></div><div class="field" style="max-width:80px"><label>Sort</label><input type="number" class="inline-cat-sort" value="' + c.sort + '" min="1"></div></div>' +
+                '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveCategoryInline(\'' + c.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + c.id + '\')">Cancel</button></div>' +
+            '</div>' +
+        '</div>'
     ).join('');
 }
 
-function editCategory(id) {
+function saveCategoryInline(originalId) {
+    const wrapper = document.getElementById('admin-wrapper-' + originalId);
+    if (!wrapper) return;
     const admin = loadAdmin();
-    const cat = admin.categories.find(c => c.id === id);
-    if (!cat) return;
-    document.getElementById('category-form-name').value = cat.name;
-    document.getElementById('category-form-sort').value = cat.sort;
-    document.getElementById('category-form-edit-id').value = id;
-    document.getElementById('category-form').classList.add('visible');
+    const name = wrapper.querySelector('.inline-cat-name').value.trim();
+    const sort = parseInt(wrapper.querySelector('.inline-cat-sort').value) || 1;
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const idx = admin.categories.findIndex(c => c.id === originalId);
+    if (idx !== -1) {
+        admin.categories[idx].name = name;
+        admin.categories[idx].sort = sort;
+    }
+    saveAdmin(admin);
+    renderCategoryManagement();
+    renderTopicManagement();
+    showToast('Category saved', 'success');
 }
 
 function saveCategory() {
     const admin = loadAdmin();
-    const editId = document.getElementById('category-form-edit-id').value;
     const name = document.getElementById('category-form-name').value.trim();
     const sort = parseInt(document.getElementById('category-form-sort').value) || 1;
     if (!name) { showToast('Name is required', 'error'); return; }
     const key = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 30);
 
-    if (editId) {
-        const idx = admin.categories.findIndex(c => c.id === editId);
-        if (idx !== -1) {
-            admin.categories[idx].name = name;
-            admin.categories[idx].sort = sort;
-        }
-    } else {
-        if (admin.categories.find(c => c.id === key)) { showToast('Category already exists', 'error'); return; }
-        admin.categories.push({ id: key, name, sort });
-    }
+    if (admin.categories.find(c => c.id === key)) { showToast('Category already exists', 'error'); return; }
+    admin.categories.push({ id: key, name, sort });
     saveAdmin(admin);
     cancelCategoryForm();
     renderCategoryManagement();
@@ -909,7 +1152,6 @@ function cancelCategoryForm() {
     document.getElementById('category-form').classList.remove('visible');
     document.getElementById('category-form-name').value = '';
     document.getElementById('category-form-sort').value = '1';
-    document.getElementById('category-form-edit-id').value = '';
 }
 
 // --- Coverage Types ---
@@ -917,35 +1159,47 @@ function renderCoverageTypeManagement() {
     const admin = loadAdmin();
     if (!admin) return;
     document.getElementById('admin-coverage-list').innerHTML = admin.coverage_types.map(c =>
-        '<div class="admin-item"><div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-hint">' + escapeHtml(c.prompt) + '</div></div><div class="admin-item-actions"><button class="btn btn-icon btn-sm" onclick="editCoverageType(\'' + c.id + '\')" title="Edit">✎</button><button class="btn btn-icon btn-sm btn-danger" onclick="deleteCoverageType(\'' + c.id + '\')" title="Delete">🗑</button></div></div>'
+        '<div class="admin-item-wrapper" id="admin-wrapper-' + c.id + '">' +
+            '<div class="admin-item">' +
+                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-hint">' + escapeHtml(c.prompt) + '</div></div>' +
+                '<div class="admin-item-actions">' +
+                    '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + c.id + '\',\'coverage\')" title="Edit">▸</button>' +
+                    '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteCoverageType(\'' + c.id + '\')" title="Delete">🗑</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="admin-inline-form">' +
+                '<div class="field"><label>Name</label><input type="text" class="inline-coverage-name" value="' + escapeHtml(c.name) + '"></div>' +
+                '<div class="field"><label>Prompt Instruction</label><textarea class="inline-coverage-prompt" rows="2">' + escapeHtml(c.prompt) + '</textarea></div>' +
+                '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveCoverageInline(\'' + c.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + c.id + '\')">Cancel</button></div>' +
+            '</div>' +
+        '</div>'
     ).join('');
 }
 
-function editCoverageType(id) {
+function saveCoverageInline(originalId) {
+    const wrapper = document.getElementById('admin-wrapper-' + originalId);
+    if (!wrapper) return;
     const admin = loadAdmin();
-    const ct = admin.coverage_types.find(c => c.id === id);
-    if (!ct) return;
-    document.getElementById('coverage-form-name').value = ct.name;
-    document.getElementById('coverage-form-prompt').value = ct.prompt;
-    document.getElementById('coverage-form-edit-id').value = id;
-    document.getElementById('coverage-form').classList.add('visible');
+    const name = wrapper.querySelector('.inline-coverage-name').value.trim();
+    const prompt = wrapper.querySelector('.inline-coverage-prompt').value.trim();
+    if (!name || !prompt) { showToast('Name and prompt are required', 'error'); return; }
+
+    const idx = admin.coverage_types.findIndex(c => c.id === originalId);
+    if (idx !== -1) { admin.coverage_types[idx].name = name; admin.coverage_types[idx].prompt = prompt; }
+    saveAdmin(admin);
+    renderCoverageTypeManagement();
+    showToast('Coverage type saved', 'success');
 }
 
 function saveCoverageType() {
     const admin = loadAdmin();
-    const editId = document.getElementById('coverage-form-edit-id').value;
     const name = document.getElementById('coverage-form-name').value.trim();
     const prompt = document.getElementById('coverage-form-prompt').value.trim();
     if (!name || !prompt) { showToast('Name and prompt are required', 'error'); return; }
     const key = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 30);
 
-    if (editId) {
-        const idx = admin.coverage_types.findIndex(c => c.id === editId);
-        if (idx !== -1) { admin.coverage_types[idx].name = name; admin.coverage_types[idx].prompt = prompt; }
-    } else {
-        if (admin.coverage_types.find(c => c.id === key)) { showToast('Coverage type already exists', 'error'); return; }
-        admin.coverage_types.push({ id: key, name, prompt });
-    }
+    if (admin.coverage_types.find(c => c.id === key)) { showToast('Coverage type already exists', 'error'); return; }
+    admin.coverage_types.push({ id: key, name, prompt });
     saveAdmin(admin);
     cancelCoverageForm();
     renderCoverageTypeManagement();
@@ -969,7 +1223,6 @@ function cancelCoverageForm() {
     document.getElementById('coverage-form').classList.remove('visible');
     document.getElementById('coverage-form-name').value = '';
     document.getElementById('coverage-form-prompt').value = '';
-    document.getElementById('coverage-form-edit-id').value = '';
 }
 
 // --- Prompt Editor ---
@@ -1013,9 +1266,12 @@ function resetUserTemplate() {
 
 function previewFullPrompt() {
     const preview = document.getElementById('prompt-preview');
-    if (preview.style.display !== 'none') { preview.style.display = 'none'; return; }
-    preview.textContent = assemblePrompt();
-    preview.style.display = '';
+    const isVisible = preview.style.display === 'block';
+    if (isVisible) { preview.style.display = 'none'; return; }
+    const prompt = assemblePrompt();
+    preview.textContent = prompt || '(No prompt assembled — check settings and admin configuration)';
+    preview.style.display = 'block';
+    preview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // --- Styles ---
@@ -1023,25 +1279,47 @@ function renderStyleManagement() {
     const admin = loadAdmin();
     if (!admin) return;
     document.getElementById('admin-style-list').innerHTML = admin.styles.map(s =>
-        '<div class="admin-item"><div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(s.name) + '</div><div class="admin-item-meta">~' + s.word_target + ' words | ' + s.max_tokens + ' max tokens | ' + escapeHtml(s.description) + '</div></div><div class="admin-item-actions"><button class="btn btn-icon btn-sm" onclick="editStyle(\'' + s.id + '\')" title="Edit">✎</button><button class="btn btn-icon btn-sm btn-danger" onclick="deleteStyle(\'' + s.id + '\')" title="Delete">🗑</button></div></div>'
+        '<div class="admin-item-wrapper" id="admin-wrapper-' + s.id + '">' +
+            '<div class="admin-item">' +
+                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(s.name) + '</div><div class="admin-item-meta">~' + s.word_target + ' words | ' + s.max_tokens + ' max tokens | ' + escapeHtml(s.description) + '</div></div>' +
+                '<div class="admin-item-actions">' +
+                    '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + s.id + '\',\'style\')" title="Edit">▸</button>' +
+                    '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteStyle(\'' + s.id + '\')" title="Delete">🗑</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="admin-inline-form">' +
+                '<div class="input-row"><div class="field"><label>Name</label><input type="text" class="inline-style-name" value="' + escapeHtml(s.name) + '"></div><div class="field" style="max-width:120px"><label>Word Target</label><input type="number" class="inline-style-words" value="' + s.word_target + '"></div><div class="field" style="max-width:120px"><label>Max Tokens</label><input type="number" class="inline-style-tokens" value="' + s.max_tokens + '"></div></div>' +
+                '<div class="field"><label>Description</label><input type="text" class="inline-style-desc" value="' + escapeHtml(s.description || '') + '"></div>' +
+                '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveStyleInline(\'' + s.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + s.id + '\')">Cancel</button></div>' +
+            '</div>' +
+        '</div>'
     ).join('');
 }
 
-function editStyle(id) {
+function saveStyleInline(originalId) {
+    const wrapper = document.getElementById('admin-wrapper-' + originalId);
+    if (!wrapper) return;
     const admin = loadAdmin();
-    const style = admin.styles.find(s => s.id === id);
-    if (!style) return;
-    document.getElementById('style-form-name').value = style.name;
-    document.getElementById('style-form-words').value = style.word_target;
-    document.getElementById('style-form-tokens').value = style.max_tokens;
-    document.getElementById('style-form-desc').value = style.description || '';
-    document.getElementById('style-form-edit-id').value = id;
-    document.getElementById('style-form').classList.add('visible');
+    const name = wrapper.querySelector('.inline-style-name').value.trim();
+    const wordTarget = parseInt(wrapper.querySelector('.inline-style-words').value) || 500;
+    const maxTokens = parseInt(wrapper.querySelector('.inline-style-tokens').value) || 1000;
+    const description = wrapper.querySelector('.inline-style-desc').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const idx = admin.styles.findIndex(s => s.id === originalId);
+    if (idx !== -1) {
+        admin.styles[idx].name = name;
+        admin.styles[idx].word_target = wordTarget;
+        admin.styles[idx].max_tokens = maxTokens;
+        admin.styles[idx].description = description;
+    }
+    saveAdmin(admin);
+    renderStyleManagement();
+    showToast('Style saved', 'success');
 }
 
 function saveStyle() {
     const admin = loadAdmin();
-    const editId = document.getElementById('style-form-edit-id').value;
     const name = document.getElementById('style-form-name').value.trim();
     const wordTarget = parseInt(document.getElementById('style-form-words').value) || 500;
     const maxTokens = parseInt(document.getElementById('style-form-tokens').value) || 1000;
@@ -1049,18 +1327,8 @@ function saveStyle() {
     if (!name) { showToast('Name is required', 'error'); return; }
     const key = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 30);
 
-    if (editId) {
-        const idx = admin.styles.findIndex(s => s.id === editId);
-        if (idx !== -1) {
-            admin.styles[idx].name = name;
-            admin.styles[idx].word_target = wordTarget;
-            admin.styles[idx].max_tokens = maxTokens;
-            admin.styles[idx].description = description;
-        }
-    } else {
-        if (admin.styles.find(s => s.id === key)) { showToast('Style already exists', 'error'); return; }
-        admin.styles.push({ id: key, name, word_target: wordTarget, max_tokens: maxTokens, description });
-    }
+    if (admin.styles.find(s => s.id === key)) { showToast('Style already exists', 'error'); return; }
+    admin.styles.push({ id: key, name, word_target: wordTarget, max_tokens: maxTokens, description });
     saveAdmin(admin);
     cancelStyleForm();
     renderStyleManagement();
@@ -1088,53 +1356,68 @@ function cancelStyleForm() {
     document.getElementById('style-form-words').value = '500';
     document.getElementById('style-form-tokens').value = '1000';
     document.getElementById('style-form-desc').value = '';
-    document.getElementById('style-form-edit-id').value = '';
 }
 
 // --- Models ---
 function renderModelManagement() {
     const admin = loadAdmin();
     if (!admin) return;
-    document.getElementById('admin-model-list').innerHTML = admin.models.map(m =>
-        '<div class="admin-item"><div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(m.name) + '</div><div class="admin-item-meta">' + escapeHtml(m.id) + ' | ' + escapeHtml(m.cost_note) + '</div></div><div class="admin-item-actions"><button class="btn btn-icon btn-sm" onclick="editModel(\'' + m.id + '\')" title="Edit">✎</button><button class="btn btn-icon btn-sm btn-danger" onclick="deleteModel(\'' + m.id + '\')" title="Delete">🗑</button></div></div>'
-    ).join('');
+    document.getElementById('admin-model-list').innerHTML = admin.models.map(m => {
+        const provider = m.provider || 'anthropic';
+        const providerLabel = provider === 'google' ? 'Google' : 'Anthropic';
+        return '<div class="admin-item-wrapper" id="admin-wrapper-' + m.id + '">' +
+            '<div class="admin-item">' +
+                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(m.name) + ' <span style="font-size:0.72rem;color:var(--text-faint);font-weight:400">(' + providerLabel + ')</span></div><div class="admin-item-meta">' + escapeHtml(m.id) + ' | ' + escapeHtml(m.cost_note) + '</div></div>' +
+                '<div class="admin-item-actions">' +
+                    '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + m.id + '\',\'model\')" title="Edit">▸</button>' +
+                    '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteModel(\'' + m.id + '\')" title="Delete">🗑</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="admin-inline-form">' +
+                '<div class="input-row"><div class="field"><label>Provider</label><select class="inline-model-provider"><option value="anthropic"' + (provider === 'anthropic' ? ' selected' : '') + '>Anthropic</option><option value="google"' + (provider === 'google' ? ' selected' : '') + '>Google Gemini</option></select></div><div class="field"><label>API Model ID</label><input type="text" class="inline-model-id" value="' + escapeHtml(m.id) + '"></div></div>' +
+                '<div class="input-row"><div class="field"><label>Display Name</label><input type="text" class="inline-model-name" value="' + escapeHtml(m.name) + '"></div><div class="field"><label>Cost Note</label><input type="text" class="inline-model-cost" value="' + escapeHtml(m.cost_note || '') + '"></div></div>' +
+                '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveModelInline(\'' + m.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + m.id + '\')">Cancel</button></div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
 }
 
-function editModel(id) {
+function saveModelInline(originalId) {
+    const wrapper = document.getElementById('admin-wrapper-' + originalId);
+    if (!wrapper) return;
     const admin = loadAdmin();
-    const model = admin.models.find(m => m.id === id);
-    if (!model) return;
-    document.getElementById('model-form-id').value = model.id;
-    document.getElementById('model-form-name').value = model.name;
-    document.getElementById('model-form-cost').value = model.cost_note || '';
-    document.getElementById('model-form-edit-id').value = id;
-    document.getElementById('model-form').classList.add('visible');
+    const apiId = wrapper.querySelector('.inline-model-id').value.trim();
+    const name = wrapper.querySelector('.inline-model-name').value.trim();
+    const costNote = wrapper.querySelector('.inline-model-cost').value.trim();
+    const provider = wrapper.querySelector('.inline-model-provider').value;
+    if (!apiId || !name) { showToast('API Model ID and name are required', 'error'); return; }
+
+    const idx = admin.models.findIndex(m => m.id === originalId);
+    if (idx !== -1) {
+        if (originalId !== apiId) {
+            const settings = loadSettings();
+            if (settings.default_model === originalId) {
+                settings.default_model = apiId;
+                saveSettings(settings);
+            }
+        }
+        admin.models[idx] = { id: apiId, name, provider, cost_note: costNote };
+    }
+    saveAdmin(admin);
+    renderModelManagement();
+    showToast('Model saved', 'success');
 }
 
 function saveModel() {
     const admin = loadAdmin();
-    const editId = document.getElementById('model-form-edit-id').value;
     const apiId = document.getElementById('model-form-id').value.trim();
     const name = document.getElementById('model-form-name').value.trim();
     const costNote = document.getElementById('model-form-cost').value.trim();
+    const provider = document.getElementById('model-form-provider').value;
     if (!apiId || !name) { showToast('API Model ID and name are required', 'error'); return; }
 
-    if (editId) {
-        const idx = admin.models.findIndex(m => m.id === editId);
-        if (idx !== -1) {
-            if (editId !== apiId) {
-                const settings = loadSettings();
-                if (settings.default_model === editId) {
-                    settings.default_model = apiId;
-                    saveSettings(settings);
-                }
-            }
-            admin.models[idx] = { id: apiId, name, cost_note: costNote };
-        }
-    } else {
-        if (admin.models.find(m => m.id === apiId)) { showToast('Model ID already exists', 'error'); return; }
-        admin.models.push({ id: apiId, name, cost_note: costNote });
-    }
+    if (admin.models.find(m => m.id === apiId)) { showToast('Model ID already exists', 'error'); return; }
+    admin.models.push({ id: apiId, name, provider, cost_note: costNote });
     saveAdmin(admin);
     cancelModelForm();
     renderModelManagement();
@@ -1158,17 +1441,17 @@ function deleteModel(id) {
 
 function cancelModelForm() {
     document.getElementById('model-form').classList.remove('visible');
+    document.getElementById('model-form-provider').value = 'anthropic';
     document.getElementById('model-form-id').value = '';
     document.getElementById('model-form-name').value = '';
     document.getElementById('model-form-cost').value = '';
-    document.getElementById('model-form-edit-id').value = '';
 }
 
 // ================================================================
 // SECTION 12: EXPORT / IMPORT / DATA MANAGEMENT
 // ================================================================
 function exportSettings() {
-    const data = { mb_settings: loadSettings(), mb_api_key: loadApiKey() };
+    const data = { mb_settings: loadSettings(), mb_api_key: loadApiKey(), mb_gemini_api_key: loadGeminiApiKey() };
     downloadFile('market-briefing-settings-' + todayISO() + '.json', JSON.stringify(data, null, 2), 'application/json');
     showToast('Settings exported', 'success');
 }
@@ -1179,6 +1462,7 @@ function importSettings() {
             const data = JSON.parse(content);
             if (data.mb_settings) saveSettings(data.mb_settings);
             if (data.mb_api_key) saveApiKey(data.mb_api_key);
+            if (data.mb_gemini_api_key) saveGeminiApiKey(data.mb_gemini_api_key);
             renderSettings();
             showToast('Settings imported', 'success');
         } catch(e) { showToast('Invalid file format', 'error'); }
@@ -1210,6 +1494,7 @@ function importHistory() {
 function exportEverything() {
     const data = {
         mb_api_key: loadApiKey(),
+        mb_gemini_api_key: loadGeminiApiKey(),
         mb_settings: loadSettings(),
         mb_admin: loadAdmin(),
         mb_history: loadHistory()
@@ -1223,6 +1508,7 @@ function importEverything() {
         try {
             const data = JSON.parse(content);
             if (data.mb_api_key) saveApiKey(data.mb_api_key);
+            if (data.mb_gemini_api_key) saveGeminiApiKey(data.mb_gemini_api_key);
             if (data.mb_settings) saveSettings(data.mb_settings);
             if (data.mb_admin) saveAdmin(data.mb_admin);
             if (data.mb_history) saveHistory(data.mb_history);
@@ -1243,6 +1529,7 @@ function clearHistoryOnly() {
 function resetEverything() {
     showConfirm('Reset everything to factory defaults? All settings, history, and admin config will be erased.', () => {
         localStorage.removeItem('mb_api_key');
+        localStorage.removeItem('mb_gemini_api_key');
         localStorage.removeItem('mb_settings');
         localStorage.removeItem('mb_admin');
         localStorage.removeItem('mb_history');

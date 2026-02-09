@@ -9,7 +9,7 @@
 <body>
     <div class="app-container">
         <header>
-            <h1>Market AI Aggregator <span class="version">X2</span></h1>
+            <h1>Market AI Aggregator <span class="version">X3</span></h1>
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                 <button class="tab-btn" data-tab="history">History</button>
@@ -22,6 +22,7 @@
         <main>
             <!-- ==================== DASHBOARD TAB ==================== -->
             <div id="tab-dashboard" class="tab-content active">
+                <div id="dashboard-banner"></div>
                 <div class="card" id="generate-section">
                     <h3>Generate Briefing</h3>
                     <div class="input-row">
@@ -111,16 +112,65 @@
                 <div id="settings-banner"></div>
 
                 <div class="card">
-                    <h3>API Configuration</h3>
-                    <div class="field">
+                    <h3>Theme</h3>
+                    <div class="theme-options" id="theme-options">
+                        <label class="theme-option" data-theme="light">
+                            <input type="radio" name="settings-theme" value="light">
+                            <div class="theme-swatch">
+                                <div class="theme-swatch-top" style="background:#1a1a2e"></div>
+                                <div class="theme-swatch-bottom" style="background:#f0f2f5"></div>
+                            </div>
+                            <div class="theme-option-info">
+                                <div class="theme-option-name">Light</div>
+                                <div class="theme-option-desc">Default clean look</div>
+                            </div>
+                        </label>
+                        <label class="theme-option" data-theme="dark">
+                            <input type="radio" name="settings-theme" value="dark">
+                            <div class="theme-swatch">
+                                <div class="theme-swatch-top" style="background:#0a0c12"></div>
+                                <div class="theme-swatch-bottom" style="background:#0f1117"></div>
+                            </div>
+                            <div class="theme-option-info">
+                                <div class="theme-option-name">Dark</div>
+                                <div class="theme-option-desc">Easy on the eyes</div>
+                            </div>
+                        </label>
+                        <label class="theme-option" data-theme="umich">
+                            <input type="radio" name="settings-theme" value="umich">
+                            <div class="theme-swatch">
+                                <div class="theme-swatch-top" style="background:#00274C"></div>
+                                <div class="theme-swatch-bottom" style="background:#FFCB05"></div>
+                            </div>
+                            <div class="theme-option-info">
+                                <div class="theme-option-name">Go Blue!</div>
+                                <div class="theme-option-desc">Maize &amp; Blue forever</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card" id="api-config-card">
+                    <h3 id="api-config-title">API Configuration</h3>
+                    <div class="card-section">
                         <label for="settings-apikey">Anthropic API Key</label>
                         <div class="input-group">
                             <input type="password" id="settings-apikey" placeholder="sk-ant-...">
-                            <button class="btn" onclick="toggleApiKeyVis()">Show</button>
+                            <button class="btn" onclick="toggleApiKeyVis('settings-apikey')">Show</button>
+                        </div>
+                        <div class="status-line" id="apikey-status">
+                            <span class="status-dot gray"></span> Not Set
                         </div>
                     </div>
-                    <div class="status-line" id="apikey-status">
-                        <span class="status-dot gray"></span> Not Set
+                    <div class="card-section">
+                        <label for="settings-gemini-key">Google Gemini API Key</label>
+                        <div class="input-group">
+                            <input type="password" id="settings-gemini-key" placeholder="AIza...">
+                            <button class="btn" onclick="toggleApiKeyVis('settings-gemini-key')">Show</button>
+                        </div>
+                        <div class="status-line" id="gemini-key-status">
+                            <span class="status-dot gray"></span> Not Set
+                        </div>
                     </div>
                 </div>
 
@@ -232,7 +282,6 @@
                             <label>Prompt Hint</label>
                             <textarea id="topic-form-hint" rows="2" placeholder="What should Claude search for when this topic is enabled?"></textarea>
                         </div>
-                        <input type="hidden" id="topic-form-edit-id">
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveTopic()">Save Topic</button>
                             <button class="btn btn-sm" onclick="cancelTopicForm()">Cancel</button>
@@ -256,7 +305,6 @@
                                 <input type="number" id="category-form-sort" value="1" min="1">
                             </div>
                         </div>
-                        <input type="hidden" id="category-form-edit-id">
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveCategory()">Save Category</button>
                             <button class="btn btn-sm" onclick="cancelCategoryForm()">Cancel</button>
@@ -278,7 +326,6 @@
                             <label>Prompt Instruction</label>
                             <textarea id="coverage-form-prompt" rows="2"></textarea>
                         </div>
-                        <input type="hidden" id="coverage-form-edit-id">
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveCoverageType()">Save Coverage Type</button>
                             <button class="btn btn-sm" onclick="cancelCoverageForm()">Cancel</button>
@@ -329,7 +376,6 @@
                             <label>Description</label>
                             <input type="text" id="style-form-desc">
                         </div>
-                        <input type="hidden" id="style-form-edit-id">
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveStyle()">Save Style</button>
                             <button class="btn btn-sm" onclick="cancelStyleForm()">Cancel</button>
@@ -343,15 +389,23 @@
                     <div id="admin-model-list"></div>
                     <button class="btn btn-sm" onclick="toggleAdminForm('model-form')">+ Add Model</button>
                     <div class="admin-form" id="model-form">
-                        <div class="field">
-                            <label>API Model ID</label>
-                            <input type="text" id="model-form-id" placeholder="claude-sonnet-4-5-20250929">
+                        <div class="input-row">
+                            <div class="field">
+                                <label>Provider</label>
+                                <select id="model-form-provider">
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="google">Google Gemini</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>API Model ID</label>
+                                <input type="text" id="model-form-id" placeholder="claude-sonnet-4-5-20250929">
+                            </div>
                         </div>
                         <div class="input-row">
                             <div class="field"><label>Display Name</label><input type="text" id="model-form-name"></div>
                             <div class="field"><label>Cost Note</label><input type="text" id="model-form-cost" placeholder="Fast, ~$0.05/run"></div>
                         </div>
-                        <input type="hidden" id="model-form-edit-id">
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveModel()">Save Model</button>
                             <button class="btn btn-sm" onclick="cancelModelForm()">Cancel</button>
@@ -377,11 +431,11 @@
 
                     <div class="guide-section" id="guide-start">
                         <h4>Getting Started</h4>
-                        <p>This app generates AI-powered daily market briefings by sending a customized prompt to the Anthropic API with web search enabled. Claude searches live sources (CME FedWatch, BLS, financial news) and synthesizes a briefing based on your selected topics, watchlist, and style preferences.</p>
-                        <p>Everything runs in your browser. Your API key and settings are stored in localStorage — nothing is sent anywhere except the Anthropic API when you click "Run Briefing."</p>
+                        <p>This app generates AI-powered daily market briefings by sending a customized prompt to an AI API with web search enabled. Supports Anthropic (Claude) and Google Gemini models. The AI searches live sources (CME FedWatch, BLS, financial news) and synthesizes a briefing based on your selected topics, watchlist, and style preferences.</p>
+                        <p>Everything runs in your browser. Your API keys and settings are stored in localStorage — nothing is sent anywhere except the selected API when you click "Run Briefing."</p>
                         <p><strong>First-time setup:</strong></p>
                         <ol>
-                            <li>Go to Settings → enter your Anthropic API key</li>
+                            <li>Go to Settings → enter your API key (Anthropic and/or Google Gemini)</li>
                             <li>Select your default model, topics, and watchlist</li>
                             <li>Go to Dashboard → Build Prompt → Run Briefing</li>
                         </ol>
@@ -416,7 +470,7 @@
 
                     <div class="guide-section" id="guide-settings">
                         <h4>Settings</h4>
-                        <p><strong>API Key</strong> — Stored in localStorage only. Validated with a lightweight test call when entered.</p>
+                        <p><strong>API Keys</strong> — Separate keys for Anthropic and Google Gemini. Stored in localStorage only. Each is validated with a lightweight test call when saved.</p>
                         <p><strong>Default Model</strong> — Sets which model is pre-selected on Dashboard. Can be overridden per-run.</p>
                         <p><strong>Topics</strong> — Toggle which topics are included when building a prompt. Each has a prompt hint (editable in Admin).</p>
                         <p><strong>Watchlist</strong> — Your tracked tickers, injected into the prompt so Claude searches for news about these symbols.</p>
@@ -434,7 +488,7 @@
                         <p><strong>Prompt Editor</strong> — Direct access to the system prompt and user prompt template with variable placeholders.</p>
                         <p class="warning">⚠ The system prompt defines Claude's persona and rules. Edit carefully — bad system prompts produce bad briefings. Use "Reset to Default" if things go sideways.</p>
                         <p><strong>Briefing Styles</strong> — Add custom styles beyond the defaults.</p>
-                        <p><strong>Model Management</strong> — Add new models as Anthropic releases them.</p>
+                        <p><strong>Model Management</strong> — Add new models from Anthropic or Google Gemini. Each model has a provider field that determines which API to call.</p>
                     </div>
 
                     <div class="guide-section" id="guide-data">
@@ -488,9 +542,11 @@
                                 <tr><td>Opus + Deep Dive</td><td>~$0.40–0.60</td></tr>
                                 <tr><td>Daily Sonnet/Standard</td><td>~$2–3/month</td></tr>
                                 <tr><td>Daily Opus/Standard</td><td>~$8–12/month</td></tr>
+                                <tr><td>Gemini Flash (any style)</td><td>Free (within limits)</td></tr>
                             </tbody>
                         </table>
-                        <p>Check usage at <strong>console.anthropic.com/usage</strong></p>
+                        <p>Check Anthropic usage at <strong>console.anthropic.com/usage</strong></p>
+                        <p>Gemini free tier: 10 RPM, 250 RPD. Get your key at <strong>aistudio.google.com</strong></p>
                     </div>
                 </div>
             </div>
