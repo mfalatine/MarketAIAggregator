@@ -190,6 +190,7 @@ textarea { resize: vertical; min-height: 80px; }
 .option-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 .topic-group-label { font-weight: 600; font-size: 0.8rem; color: var(--text-muted); margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .topic-group-label:first-child { margin-top: 0; }
+.topic-group-desc { display: block; font-weight: 400; font-size: 0.75rem; text-transform: none; letter-spacing: 0; color: var(--text-faint); margin-top: 2px; }
 
 /* ========== BUTTONS ========== */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--btn-border); border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: inherit; background: var(--btn-bg); color: var(--btn-text); }

@@ -3,9 +3,9 @@
 // ================================================================
 const DEFAULT_ADMIN = {
     categories: [
-        { id: 'macro_policy', name: 'Macro / Policy', sort: 1 },
-        { id: 'market_technicals', name: 'Market / Technicals', sort: 2 },
-        { id: 'company_earnings', name: 'Company / Earnings', sort: 3 }
+        { id: 'macro_policy', name: 'Macro / Policy', sort: 1, description: 'Fed policy, economic data, rates, and geopolitical events' },
+        { id: 'market_technicals', name: 'Market / Technicals', sort: 2, description: 'Index levels, volatility, breadth, sector flows, and technical signals' },
+        { id: 'company_earnings', name: 'Company / Earnings', sort: 3, description: 'Earnings reports, insider activity, IPOs, and individual stock catalysts' }
     ],
     topics: [
         { id: 'fed_policy', name: 'Fed Policy & Rate Expectations', category: 'macro_policy', prompt_hint: 'Include CME FedWatch probabilities, next FOMC date, and recent Fed speaker commentary' },
@@ -137,9 +137,24 @@ function initializeApp() {
     if (!loadSettings()) saveSettings(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
     if (!localStorage.getItem('mb_history')) saveHistory([]);
 
-    // Migration: add provider field to existing models that lack it
+    // Migration: add description field to existing categories that lack it
     const admin = loadAdmin();
     let needsSave = false;
+    const defaultCatDescs = {
+        'macro_policy': 'Fed policy, economic data, rates, and geopolitical events',
+        'market_technicals': 'Index levels, volatility, breadth, sector flows, and technical signals',
+        'company_earnings': 'Earnings reports, insider activity, IPOs, and individual stock catalysts'
+    };
+    if (admin && admin.categories) {
+        for (const c of admin.categories) {
+            if (!c.description && defaultCatDescs[c.id]) {
+                c.description = defaultCatDescs[c.id];
+                needsSave = true;
+            }
+        }
+    }
+
+    // Migration: add provider field to existing models that lack it
     if (admin && admin.models) {
         for (const m of admin.models) {
             if (!m.provider) {
@@ -813,7 +828,7 @@ function renderSettings() {
     for (const cat of cats) {
         const topics = admin.topics.filter(t => t.category === cat.id);
         if (topics.length === 0) continue;
-        topicsHtml += '<div class="topic-group-label">' + escapeHtml(cat.name) + '</div><div class="checkbox-group">';
+        topicsHtml += '<div class="topic-group-label">' + escapeHtml(cat.name) + (cat.description ? '<span class="topic-group-desc">' + escapeHtml(cat.description) + '</span>' : '') + '</div><div class="checkbox-group">';
         topicsHtml += topics.map(t =>
             '<label class="checkbox-option"><input type="checkbox" name="settings-topic" value="' + t.id + '"' + (settings.enabled_topics.includes(t.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(t.name) + '</div></div></label>'
         ).join('');
@@ -1084,7 +1099,7 @@ function renderCategoryManagement() {
     document.getElementById('admin-category-list').innerHTML = admin.categories.sort((a,b) => a.sort - b.sort).map(c =>
         '<div class="admin-item-wrapper" id="admin-wrapper-' + c.id + '">' +
             '<div class="admin-item">' +
-                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-meta">Sort: ' + c.sort + '</div></div>' +
+                '<div class="admin-item-info"><div class="admin-item-name">' + escapeHtml(c.name) + '</div><div class="admin-item-meta">Sort: ' + c.sort + '</div>' + (c.description ? '<div class="admin-item-hint">' + escapeHtml(c.description) + '</div>' : '') + '</div>' +
                 '<div class="admin-item-actions">' +
                     '<button class="btn btn-icon btn-sm admin-expand-arrow" onclick="toggleInlineEdit(\'' + c.id + '\',\'category\')" title="Edit">▸</button>' +
                     '<button class="btn btn-icon btn-sm btn-danger" onclick="deleteCategory(\'' + c.id + '\')" title="Delete">🗑</button>' +
@@ -1092,6 +1107,7 @@ function renderCategoryManagement() {
             '</div>' +
             '<div class="admin-inline-form">' +
                 '<div class="input-row"><div class="field"><label>Name</label><input type="text" class="inline-cat-name" value="' + escapeHtml(c.name) + '"></div><div class="field" style="max-width:80px"><label>Sort</label><input type="number" class="inline-cat-sort" value="' + c.sort + '" min="1"></div></div>' +
+                '<div class="field"><label>Description</label><input type="text" class="inline-cat-desc" value="' + escapeHtml(c.description || '') + '" placeholder="Short explanation of this category"></div>' +
                 '<div class="button-row"><button class="btn btn-primary btn-sm" onclick="saveCategoryInline(\'' + c.id + '\')">Save</button><button class="btn btn-sm" onclick="toggleInlineEdit(\'' + c.id + '\')">Cancel</button></div>' +
             '</div>' +
         '</div>'
@@ -1104,12 +1120,14 @@ function saveCategoryInline(originalId) {
     const admin = loadAdmin();
     const name = wrapper.querySelector('.inline-cat-name').value.trim();
     const sort = parseInt(wrapper.querySelector('.inline-cat-sort').value) || 1;
+    const description = wrapper.querySelector('.inline-cat-desc').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
 
     const idx = admin.categories.findIndex(c => c.id === originalId);
     if (idx !== -1) {
         admin.categories[idx].name = name;
         admin.categories[idx].sort = sort;
+        admin.categories[idx].description = description;
     }
     saveAdmin(admin);
     renderCategoryManagement();
@@ -1121,11 +1139,12 @@ function saveCategory() {
     const admin = loadAdmin();
     const name = document.getElementById('category-form-name').value.trim();
     const sort = parseInt(document.getElementById('category-form-sort').value) || 1;
+    const description = document.getElementById('category-form-desc').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
     const key = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 30);
 
     if (admin.categories.find(c => c.id === key)) { showToast('Category already exists', 'error'); return; }
-    admin.categories.push({ id: key, name, sort });
+    admin.categories.push({ id: key, name, sort, description });
     saveAdmin(admin);
     cancelCategoryForm();
     renderCategoryManagement();
@@ -1152,6 +1171,7 @@ function cancelCategoryForm() {
     document.getElementById('category-form').classList.remove('visible');
     document.getElementById('category-form-name').value = '';
     document.getElementById('category-form-sort').value = '1';
+    document.getElementById('category-form-desc').value = '';
 }
 
 // --- Coverage Types ---
