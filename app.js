@@ -483,6 +483,7 @@ function assembleTopicsBlock(admin, settings) {
     for (const cat of cats) {
         const topics = admin.topics.filter(t => t.category === cat.id && settings.enabled_topics.includes(t.id));
         if (topics.length === 0) continue;
+        lines.push('\n## ' + cat.name);
         for (const t of topics) {
             lines.push('- ' + t.name + (t.prompt_hint ? ':\n  ' + t.prompt_hint : ''));
         }

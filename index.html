@@ -9,7 +9,7 @@
 <body>
     <div class="app-container">
         <header>
-            <h1>Market AI Aggregator <span class="version">X6</span></h1>
+            <h1>Market AI Aggregator <span class="version">X7</span></h1>
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                 <button class="tab-btn" data-tab="history">History</button>
@@ -254,6 +254,33 @@
 
             <!-- ==================== ADMIN TAB ==================== -->
             <div id="tab-admin" class="tab-content">
+                <!-- Category Management -->
+                <div class="card admin-section">
+                    <h3>Category Management</h3>
+                    <div id="admin-category-list"></div>
+                    <button class="btn btn-sm" onclick="toggleAdminForm('category-form')">+ Add Category</button>
+                    <div class="admin-form" id="category-form">
+                        <div class="input-row">
+                            <div class="field">
+                                <label>Name</label>
+                                <input type="text" id="category-form-name">
+                            </div>
+                            <div class="field" style="max-width:80px">
+                                <label>Sort</label>
+                                <input type="number" id="category-form-sort" value="1" min="1">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label>Description</label>
+                            <input type="text" id="category-form-desc" placeholder="Short explanation of this category">
+                        </div>
+                        <div class="button-row">
+                            <button class="btn btn-primary btn-sm" onclick="saveCategory()">Save Category</button>
+                            <button class="btn btn-sm" onclick="cancelCategoryForm()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Topic Management -->
                 <div class="card admin-section">
                     <h3>Topic Management</h3>
@@ -280,38 +307,11 @@
                         </div>
                         <div class="field">
                             <label>Prompt Hint</label>
-                            <textarea id="topic-form-hint" rows="2" placeholder="What should Claude search for when this topic is enabled?"></textarea>
+                            <textarea id="topic-form-hint" rows="2" placeholder="What should the AI search for when this topic is enabled?"></textarea>
                         </div>
                         <div class="button-row">
                             <button class="btn btn-primary btn-sm" onclick="saveTopic()">Save Topic</button>
                             <button class="btn btn-sm" onclick="cancelTopicForm()">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Category Management -->
-                <div class="card admin-section">
-                    <h3>Category Management</h3>
-                    <div id="admin-category-list"></div>
-                    <button class="btn btn-sm" onclick="toggleAdminForm('category-form')">+ Add Category</button>
-                    <div class="admin-form" id="category-form">
-                        <div class="input-row">
-                            <div class="field">
-                                <label>Name</label>
-                                <input type="text" id="category-form-name">
-                            </div>
-                            <div class="field" style="max-width:80px">
-                                <label>Sort</label>
-                                <input type="number" id="category-form-sort" value="1" min="1">
-                            </div>
-                        </div>
-                        <div class="field">
-                            <label>Description</label>
-                            <input type="text" id="category-form-desc" placeholder="Short explanation of this category">
-                        </div>
-                        <div class="button-row">
-                            <button class="btn btn-primary btn-sm" onclick="saveCategory()">Save Category</button>
-                            <button class="btn btn-sm" onclick="cancelCategoryForm()">Cancel</button>
                         </div>
                     </div>
                 </div>
