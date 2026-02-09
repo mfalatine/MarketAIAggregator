@@ -9,7 +9,7 @@
 <body>
     <div class="app-container">
         <header>
-            <h1>Market AI Aggregator <span class="version">X7</span></h1>
+            <h1>Market AI Aggregator <span class="version">X8</span></h1>
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                 <button class="tab-btn" data-tab="history">History</button>
@@ -488,8 +488,8 @@
                         <h4>Admin</h4>
                         <p>Admin controls <strong>what options exist</strong>. Settings controls <strong>which options are active</strong>. Think of Admin as building the menu, Settings as ordering from it.</p>
                         <p class="note">All admin sections support inline editing — click the ▸ arrow on any item to expand its edit form in place. No separate page or modal required.</p>
-                        <p><strong>Topic Management</strong> — Add, edit, or remove topics. Each has a display name, category, key, and prompt hint that tells the AI what to search for. Filter by category to narrow the list.</p>
-                        <p><strong>Category Management</strong> — Add or rename topic groupings. Each category has a name, sort order (controls display sequence), and a short description that appears in Settings to help users understand what the category covers.</p>
+                        <p><strong>Category Management</strong> — Add or rename topic groupings. Each category has a name, sort order (controls display sequence), and a short description that appears in Settings. Category names are used as section headers (## headings) in the prompt sent to the AI, so they also structure the briefing output.</p>
+                        <p><strong>Topic Management</strong> — Add, edit, or remove topics. Each has a display name, category, key, and prompt hint that tells the AI what to search for. Topics are grouped under their category header in the prompt. Filter by category to narrow the list.</p>
                         <p><strong>Watchlist Coverage Types</strong> — Define what types of coverage are available for watchlist tickers. Each has a name and a prompt instruction that gets injected into the briefing request.</p>
                         <p><strong>Prompt Editor</strong> — Direct access to the system prompt and user prompt template with variable placeholders. Preview the fully assembled prompt to see exactly what gets sent.</p>
                         <p class="warning">⚠ The system prompt defines the AI's persona and rules. Edit carefully — bad system prompts produce bad briefings. Use "Reset to Default" if things go sideways.</p>
