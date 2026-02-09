@@ -830,7 +830,7 @@ function renderSettings() {
         if (topics.length === 0) continue;
         topicsHtml += '<div class="topic-group-label">' + escapeHtml(cat.name) + (cat.description ? '<span class="topic-group-desc">' + escapeHtml(cat.description) + '</span>' : '') + '</div><div class="checkbox-group">';
         topicsHtml += topics.map(t =>
-            '<label class="checkbox-option"><input type="checkbox" name="settings-topic" value="' + t.id + '"' + (settings.enabled_topics.includes(t.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(t.name) + '</div></div></label>'
+            '<label class="checkbox-option"><input type="checkbox" name="settings-topic" value="' + t.id + '"' + (settings.enabled_topics.includes(t.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(t.name) + '</div>' + (t.prompt_hint ? '<div class="option-desc">' + escapeHtml(t.prompt_hint) + '</div>' : '') + '</div></label>'
         ).join('');
         topicsHtml += '</div>';
     }
