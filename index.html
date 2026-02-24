@@ -25,6 +25,22 @@
                 <div id="dashboard-banner"></div>
                 <div class="card" id="generate-section">
                     <h3>Generate Briefing</h3>
+                    <div class="input-row" id="date-row">
+                        <div class="field date-field">
+                            <label for="date-from">From</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" id="date-from" readonly placeholder="Select date">
+                                <div class="calendar-popup" id="calendar-from"></div>
+                            </div>
+                        </div>
+                        <div class="field date-field">
+                            <label for="date-to">To</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" id="date-to" readonly placeholder="Select date">
+                                <div class="calendar-popup" id="calendar-to"></div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="input-row">
                         <div class="field">
                             <label for="dashboard-model">Model</label>
@@ -447,7 +463,8 @@
 
                     <div class="guide-section" id="guide-dashboard">
                         <h4>Dashboard</h4>
-                        <p><strong>Build Prompt</strong> — Assembles a prompt from your saved template, enabled topics (with their prompt hints), watchlist, coverage types, and style setting. The result appears in an editable text area.</p>
+                        <p><strong>Date Selection</strong> — Use the From/To date pickers to choose your briefing date. Both default to today. Click a field to open the calendar, then click a day to select it. Use the arrows to navigate months. If both dates are the same, it generates a single-day briefing. Set different dates for a date range briefing (e.g., a weekly recap).</p>
+                        <p><strong>Build Prompt</strong> — Assembles a prompt from your saved template, selected date(s), enabled topics (with their prompt hints), watchlist, coverage types, and style setting. The result appears in an editable text area.</p>
                         <p class="note">No API call is made. Nothing is sent yet.</p>
                         <p><strong>Edit the Prompt (optional)</strong> — You can modify the assembled prompt before running. Examples:</p>
                         <ul>

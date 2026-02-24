@@ -16,9 +16,11 @@ There is an existing project at `C:\Users\micha\source\repos\ForexFactoryScraper
 - Already live and hosted on Netlify — no additional infrastructure needed
 
 ### API Example
-```
+
+```text
 https://forexfactoryscrape.netlify.app/.netlify/functions/scrape?day=feb07.2025&format=json&permalink=true&impacts=3,2
 ```
+
 Returns all High and Medium impact events for that day as structured JSON.
 
 ---
@@ -35,7 +37,8 @@ Instead of relying solely on Claude's web search to find upcoming economic event
 4. Claude then uses this **confirmed event data** + web search for everything else (sentiment, analysis, watchlist news)
 
 ### Example Prompt Injection
-```
+
+```text
 ECONOMIC CALENDAR DATA (confirmed from ForexFactory):
 - Feb 7, 8:30 AM ET | USD | Non-Farm Payrolls | Impact: HIGH | Forecast: 170K | Previous: 256K
 - Feb 7, 8:30 AM ET | USD | Unemployment Rate | Impact: HIGH | Forecast: 4.1% | Previous: 4.1%
@@ -58,12 +61,14 @@ Use this confirmed data as the foundation for the Economic Calendar section. Sea
 ## Integration Options
 
 ### Option 1: Client-Side Fetch (Simplest)
+
 - Browser JS calls the scraper API directly before prompt assembly
 - Inject results into the prompt text
 - **Pros:** No architecture changes, the scraper already has CORS enabled
 - **Cons:** Adds a network call before each briefing generation
 
 ### Option 2: Admin-Configurable Data Source
+
 - Add a "Data Sources" section in Admin where users can configure external API endpoints
 - ForexFactory Scraper would be the first one
 - Each data source has: URL template, enabled/disabled toggle, which topic it feeds into
@@ -71,6 +76,7 @@ Use this confirmed data as the foundation for the Economic Calendar section. Sea
 - **Cons:** More UI/config work
 
 ### Option 3: Toggle on Dashboard
+
 - Simple checkbox: "☑ Include ForexFactory calendar data"
 - When checked, fetches event data and prepends it to the prompt
 - **Pros:** Simple UX, user controls when to use it
@@ -91,7 +97,7 @@ Use this confirmed data as the foundation for the Economic Calendar section. Sea
 ## Scraper API Reference
 
 | Parameter | Example | Description |
-|-----------|---------|-------------|
+| ---------- | ------- | ----------- |
 | `day` | `feb07.2025` | Specific day |
 | `week` | `feb03.2025` | Week starting date |
 | `month` | `feb01.2025` | Full month |

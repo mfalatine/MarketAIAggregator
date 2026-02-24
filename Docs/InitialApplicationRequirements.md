@@ -13,6 +13,7 @@ The application should produce daily briefings similar to this format:
 The goal is a snapshot of the present day's most impactful events affecting the S&P 500, with controls for what type of information is gathered and how it's presented.
 
 ### Key Principles
+
 - **100% browser-side** — no server, no backend, no Python dependencies
 - **Single HTML file** — can be opened locally via double-click or hosted on Netlify/GitHub Pages
 - **API key stored in localStorage** — never sent anywhere except Anthropic API as auth header
@@ -26,25 +27,33 @@ The goal is a snapshot of the present day's most impactful events affecting the 
 Four approaches were evaluated for sourcing and synthesizing market intelligence:
 
 ### Option 1: AI API with Web Search ✅ SELECTED
+
 Use the Anthropic API with the web search tool enabled. Send a structured prompt and Claude searches, synthesizes, and returns a concise briefing.
+
 - **Pros:** Lowest complexity, highest quality synthesis, customizable via prompt, no source maintenance
 - **Cons:** API cost per call (~$0.05-0.15/run), dependent on web search quality
 - **Stack:** Browser JS → Anthropic API (with web_search tool) → formatted output
 
 ### Option 2: Direct Source Scraping + AI Summary (Not Selected)
+
 Scrape known sources (Fed calendar, BLS schedule, CME FedWatch, MarketWatch, CNBC) then feed raw data into AI for synthesis.
+
 - **Pros:** Deterministic data sourcing, control over exactly what's checked
 - **Cons:** Scraping is fragile (sites change layouts), maintenance burden, some sites block scraping
 - **Stack:** Python (requests/BeautifulSoup) → raw text → Anthropic API → summary
 
 ### Option 3: Financial Data APIs + AI Summary (Not Selected)
+
 Use structured APIs like Alpha Vantage, Finnhub, FRED API, or paid services like Polygon.io.
+
 - **Pros:** Reliable structured data, no scraping fragility
 - **Cons:** Free tiers limited, good coverage requires paid subscriptions ($20-100/mo)
 - **Stack:** Python → multiple API calls → aggregate → Anthropic API → briefing
 
 ### Option 4: RSS/News Feeds + AI Filter (Not Selected)
+
 Pull RSS feeds from Reuters, Bloomberg, CNBC, Fed announcements, then use AI to filter and rank.
+
 - **Pros:** Low cost, feeds are stable
 - **Cons:** RSS feeds are dying (Bloomberg killed theirs), limited depth
 - **Stack:** Python → RSS aggregation → Anthropic API → filtered summary
@@ -58,8 +67,10 @@ Pull RSS feeds from Reuters, Bloomberg, CNBC, Fed announcements, then use AI to 
 Three hosting approaches were evaluated:
 
 ### Option A: Netlify with Serverless Functions
+
 Static HTML/JS frontend on Netlify, API calls routed through Netlify Functions so API key stays server-side.
-```
+
+```text
 Browser (your-briefing.netlify.app)
     │
     ▼
@@ -68,24 +79,30 @@ Netlify Function (/api/generate)   ← API key lives here, never exposed
     ▼
 Anthropic API + web_search
 ```
+
 - **Pros:** Accessible from any device, API key secure, free tier covers this easily
 - **Cons:** Need a Netlify account, more complex deployment
 - **Cost:** Netlify free tier = 125K function invocations/month (you'd use ~30)
 
 ### Option B: 100% Browser-Side ✅ SELECTED
+
 Everything runs in the browser. API key stored in localStorage, calls go directly from browser to Anthropic.
-```
+
+```text
 Browser (open index.html locally OR host anywhere)
     │
     ▼  (direct fetch from browser JS)
 Anthropic API + web_search
 ```
+
 - **Pros:** Zero infrastructure, works as a local HTML file or hosted anywhere, no server needed
 - **Cons:** API key is in the browser (fine for single user, not for sharing)
 - **Storage:** All config + history lives in localStorage — persists across sessions
 
 ### Option C: Hybrid — Upload Config File (Not Selected)
+
 Same as Option B but instead of localStorage, upload a JSON config file each session.
+
 - Rejected in favor of Option B's localStorage approach with export/import for portability.
 
 **Decision:** Option B selected — simplest possible deployment. The entire app is one HTML file that can be double-clicked locally, dropped on Netlify, or hosted on GitHub Pages. For Netlify hosting, simply deploy the single index.html as a static site (no serverless functions needed for MVP since API key is client-side).
@@ -94,7 +111,7 @@ Same as Option B but instead of localStorage, upload a JSON config file each ses
 
 ## 4. Architecture — Data Flow
 
-```
+```text
 User Config (localStorage)
     │
     ├── Topics + prompt hints
@@ -128,6 +145,7 @@ Auto-saved to History (localStorage)
 ```
 
 ### API Integration
+
 ```javascript
 const response = await fetch("https://api.anthropic.com/v1/messages", {
   method: "POST",
@@ -151,7 +169,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 
 ## 5. Navigation Structure
 
-```
+```text
 [ Dashboard ]  [ History ]  [ Settings ]  [ 🔧 Admin ]  [ 📖 Guide ]
 ```
 
@@ -161,8 +179,9 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 
 ### 6.1 Dashboard Tab
 
-#### Wireframe Layout
-```
+#### Dashboard — Wireframe Layout
+
+```text
 ┌─────────────────────────────────────────────────────┐
 │  GENERATE BRIEFING                                   │
 │  ┌─────────────────────────────────────────────────┐ │
@@ -238,7 +257,8 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 ```
 
 #### Dashboard Flow
-```
+
+```text
 1. Click "Build Prompt"
    → Assembles from template + active settings
    → Populates editable text area
@@ -260,6 +280,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 ```
 
 #### 6.1.1 Generate Section
+
 - **Model Override Dropdown** — Select Sonnet or Opus for this run (defaults to Settings default). Only affects this run, default is not changed.
 - **"Build Prompt" Button** — Assembles prompt from template + active settings, populates editable text area. No API call.
 - **Editable Prompt Text Area** — Shows the fully assembled prompt. User can modify before running:
@@ -272,6 +293,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 - **Status Indicator** — Shows generation progress (e.g., "Searching... 3/5 topics complete")
 
 #### 6.1.2 Briefing Display
+
 - **Header** — Date, model used, generation timestamp
 - **Prompt Modified Flag** — If prompt was edited from template, display "[modified from template]" with click-to-view the exact prompt sent
 - **Briefing Content** — Structured sections based on enabled topics
@@ -279,6 +301,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 - **"Regenerate" Button** — Re-runs same prompt. New API call. Previous version preserved in History.
 
 #### 6.1.3 Export Actions
+
 - **"Include Settings Snapshot" Checkbox** — When checked, exports include a snapshot of the current app configuration alongside the briefing. This lets the recipient see exactly what topics were enabled, which watchlist tickers were tracked, what coverage types were active, which model and style were used, and what prompt was sent. Useful for transferring briefings to other users so they understand how the briefing was generated and can replicate the setup.
 - **Copy** — Plain text to clipboard. No API call.
 - **Export HTML** — Downloads styled briefing as .html file. If "Include Settings Snapshot" is checked, the exported HTML includes a collapsible "Settings Snapshot" section at the bottom showing the full configuration used. No API call.
@@ -288,8 +311,9 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 
 ### 6.2 History Tab
 
-#### Wireframe Layout
-```
+#### History Tab — Wireframe Layout
+
+```text
 ┌─────────────────────────────────────────────────────┐
 │  BRIEFING HISTORY                    [Search 🔍]    │
 │  ┌─────────────────────────────────────────────────┐ │
@@ -305,11 +329,13 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 ```
 
 #### 6.2.1 Briefing List
+
 - Chronological list of all generated briefings
 - Each entry shows: date, model used (with indicator dot), one-line summary preview
 - Click to view full briefing
 
 #### 6.2.2 History Record Schema
+
 ```json
 {
   "id": "uuid",
@@ -327,6 +353,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 ```
 
 #### 6.2.3 Features
+
 - **View Past Briefing** — Click entry to see full briefing + "View Prompt" to see exact prompt sent. No API call.
 - **Compare** — Select two dates for side-by-side diff. Useful for tracking evolving narratives (e.g., rate cut probability shifting over a week). No API call.
 - **Search** — Full-text search across all saved briefings. No API call.
@@ -335,8 +362,9 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 
 ### 6.3 Settings Tab
 
-#### Wireframe Layout
-```
+#### Settings Tab — Wireframe Layout
+
+```text
 ┌─────────────────────────────────────────────────────┐
 │  API CONFIGURATION                                   │
 │  ┌─────────────────────────────────────────────────┐ │
@@ -418,22 +446,25 @@ const response = await fetch("https://api.anthropic.com/v1/messages", {
 ```
 
 #### 6.3.1 API Configuration
+
 - **API Key Input** — Password field with show/hide toggle
 - **Status Indicator** — "● Connected" / "○ Not Set"
 - **Validation** — Lightweight API test call when key is entered
 
 #### 6.3.2 Model Selection
+
 - **Default Model** — Radio buttons for available models (managed in Admin)
   - Sonnet — Fast, ~$0.05/run
   - Opus — Deep synthesis, ~$0.30/run
 
 #### 6.3.3 Briefing Topics
+
 Grouped by category (categories managed in Admin). Checkboxes to enable/disable.
 
 **Default Topics:**
 
 | Category | Topic | Key | Default |
-|----------|-------|-----|---------|
+| -------- | ----- | --- | ------- |
 | Macro / Policy | Fed Policy & Rate Expectations | fed_policy | ✓ |
 | Macro / Policy | Economic Calendar & Data Releases | economic_calendar | ✓ |
 | Macro / Policy | Geopolitical Events | geopolitical | ○ |
@@ -447,22 +478,25 @@ Grouped by category (categories managed in Admin). Checkboxes to enable/disable.
 | Company / Earnings | IPO Calendar | ipo_calendar | ○ |
 
 #### 6.3.4 Watchlist
+
 - **Ticker Tags** — Click to remove, "+" to add
 - **Default Watchlist:** NVDA, PLTR, AMD, MRVL, VST
 
 #### 6.3.5 Watchlist Coverage Types
+
 Checkboxes for what information to gather per watchlist ticker (types managed in Admin).
 
 **Default Coverage Types:**
 
 | Coverage Type | Default | Prompt Instruction |
-|---------------|---------|-------------------|
+| ------------- | ------- | ------------------- |
 | Price-moving news | ✓ | "Breaking news likely to move share price >2% for these tickers" |
 | Upcoming earnings dates | ✓ | "Next earnings date and consensus EPS estimate" |
 | Analyst rating changes | ○ | "Recent analyst upgrades/downgrades and price target changes" |
 | Options unusual activity | ○ | "Notable unusual options activity or volume spikes" |
 
 #### 6.3.6 Output Preferences
+
 - **Briefing Style** — Radio buttons for available styles (managed in Admin)
   - Concise (~500 words)
   - Standard (~1000 words)
@@ -472,6 +506,7 @@ Checkboxes for what information to gather per watchlist ticker (types managed in
   - Default: "Focus on actionable catalysts. Distinguish confirmed data from forecasts. Include probability estimates where available."
 
 #### 6.3.7 Data Management
+
 - **Export Settings JSON** — Config only, no history (~1 KB)
 - **Import Settings JSON** — Overwrites current config
 - **Export History JSON** — All briefings with metadata (grows over time)
@@ -482,13 +517,15 @@ Checkboxes for what information to gather per watchlist ticker (types managed in
 - **Reset Everything** — Returns to first-run state
 
 **Export File Naming:**
-```
+
+```text
 market-briefing-settings-YYYY-MM-DD.json    (~1 KB)
 market-briefing-history-YYYY-MM-DD.json     (grows over time)
 market-briefing-backup-YYYY-MM-DD.json      (both combined)
 ```
 
 #### 6.3.8 First-Run Behavior
+
 If no API key is detected on app load, automatically redirect to Settings tab with "API Key Required" banner.
 
 ---
@@ -498,8 +535,9 @@ If no API key is detected on app load, automatically redirect to Settings tab wi
 Admin controls **what options exist**. Settings controls **which options are active**.
 Think of Admin as building the menu, Settings as ordering from it.
 
-#### Wireframe Layout
-```
+#### Admin Tab — Wireframe Layout
+
+```text
 ┌─────────────────────────────────────────────────────┐
 │  TOPIC MANAGEMENT                                    │
 │  ┌─────────────────────────────────────────────────┐ │
@@ -639,6 +677,7 @@ Think of Admin as building the menu, Settings as ordering from it.
 ```
 
 #### 6.4.1 Topic Management
+
 - **Category Filter Dropdown** — View topics by category
 - **Existing Topics List** — Each shows:
   - Display name
@@ -652,38 +691,45 @@ Think of Admin as building the menu, Settings as ordering from it.
   - Prompt Hint (textarea — tells Claude what to search for)
 
 #### 6.4.2 Category Management
+
 - **Existing Categories** — Name, sort order, edit/delete
 - **Add Category** — Name, sort order
 
 **Default Categories:**
+
 1. Macro / Policy
 2. Market / Technicals
 3. Company / Earnings
 
 #### 6.4.3 Watchlist Coverage Type Management
+
 - **Existing Types** — Name, prompt instruction, edit/delete
 - **Add Coverage Type** — Name, prompt instruction
 
 #### 6.4.4 Prompt Editor
 
 **System Prompt** (Claude's role instructions):
-```
+
+```text
 Default:
 You are a senior macro strategist preparing a daily market briefing
 for a trader focused on S&P 500 and AI infrastructure equities.
 
 Rules:
+
 - Distinguish confirmed data from forecasts/estimates
 - Include probability estimates where available (e.g., CME FedWatch)
 - Prioritize actionable catalysts
 - Note source for key data points
 - Flag anything that changed since yesterday
 ```
+
 - Editable textarea
 - "Reset to Default" button
 
 **User Prompt Template** (message structure):
-```
+
+```text
 Default:
 Generate market briefing for {date}.
 Cover the following topics:
@@ -693,14 +739,17 @@ Watchlist coverage: {coverage_types}
 Style: {briefing_style}
 {custom_instructions}
 ```
+
 - Editable textarea
 - Available variables: `{date}`, `{enabled_topics}`, `{watchlist}`, `{coverage_types}`, `{briefing_style}`, `{custom_instructions}`, `{topic_hints}`
 - "Reset to Default" button
 
 **Prompt Preview:**
+
 - "Preview Full Prompt" button — Shows fully assembled prompt with all variables resolved using current settings. No API call.
 
 #### 6.4.5 Briefing Style Management
+
 - **Existing Styles** — Name, word target, max_tokens, edit/delete
 - **Add Style Form:**
   - Name (text)
@@ -711,12 +760,13 @@ Style: {briefing_style}
 **Default Styles:**
 
 | Name | Word Target | Max Tokens | Description |
-|------|-------------|------------|-------------|
+| ---- | ----------- | ---------- | ----------- |
 | Concise | ~500 | 1000 | Bullet-style key points |
 | Standard | ~1000 | 2000 | Structured sections |
 | Deep Dive | ~2000 | 3000 | Full analysis |
 
 #### 6.4.6 Model Management
+
 - **Existing Models** — API model ID, display name, cost note, edit/delete
 - **Add Model Form:**
   - API Model ID (text)
@@ -726,7 +776,7 @@ Style: {briefing_style}
 **Default Models:**
 
 | API Model ID | Display Name | Cost Note |
-|-------------|-------------|-----------|
+| ------------ | ------------ | --------- |
 | claude-sonnet-4-5-20250929 | Sonnet | Fast, ~$0.05/run |
 | claude-opus-4-6 | Opus | Deep synthesis, ~$0.30/run |
 
@@ -737,7 +787,8 @@ Style: {briefing_style}
 Static HTML reference tab. No API calls, no dynamic content.
 
 #### Quick Nav
-```
+
+```text
 [Getting Started] [Dashboard] [History] [Settings] [Admin] [Data & Backup] [Troubleshooting] [Cost Reference]
 ```
 
@@ -748,6 +799,7 @@ This app generates AI-powered daily market briefings by sending a customized pro
 Everything runs in your browser. Your API key and settings are stored in localStorage — nothing is sent anywhere except the Anthropic API when you click "Run Briefing."
 
 **First-time setup:**
+
 1. Go to Settings → enter your Anthropic API key
 2. Select your default model, topics, and watchlist
 3. Go to Dashboard → Build Prompt → Run Briefing
@@ -758,6 +810,7 @@ Everything runs in your browser. Your API key and settings are stored in localSt
 → No API call is made. Nothing is sent yet.
 
 **Edit the Prompt (optional)** — You can modify the assembled prompt before running. Examples of useful one-time edits:
+
 - Add a ticker: "Also cover AVGO today"
 - Shift focus: "Go deeper on Fed policy, skip techs"
 - Add context: "Note: NVDA earnings was yesterday"
@@ -767,6 +820,7 @@ Everything runs in your browser. Your API key and settings are stored in localSt
 → No API call. Just resets the text area.
 
 **Run Briefing** — Sends the prompt (exactly as shown in the text area) to the Anthropic API with web search enabled. Claude will:
+
 1. Search the web for each requested topic
 2. Synthesize findings into your chosen style
 3. Return a structured briefing
@@ -780,7 +834,8 @@ Everything runs in your browser. Your API key and settings are stored in localSt
 **Regenerate** — Re-runs the same prompt. Useful if web search returned stale or incomplete results.
 → New API call. New result replaces current display but previous version remains in History.
 
-**Copy / Export HTML / Print**
+#### Copy / Export HTML / Print
+
 - Copy: Plain text to clipboard
 - Export HTML: Downloads styled briefing as .html
 - Print: Browser print dialog (save as PDF)
@@ -822,6 +877,7 @@ Every generated briefing is automatically saved with its date, model used, the e
 Admin controls WHAT OPTIONS EXIST. Settings controls WHICH OPTIONS ARE ACTIVE. Think of Admin as building the menu, Settings as ordering from it.
 
 **Topic Management** — Add, edit, or remove topics. Each topic has:
+
 - Display name (shown in Settings checkboxes)
 - Category (grouping in the UI)
 - Prompt hint (injected into the prompt when this topic is enabled — this is what tells Claude what to actually search for)
@@ -849,7 +905,7 @@ Example: "Weekend Review" at 3000 words for a full week recap.
 All data lives in your browser's localStorage. Clearing browser data will erase everything. Use exports to protect your data.
 
 | Action | What It Does |
-|--------|-------------|
+| ------ | ------------ |
 | Export Settings | Config only, no history |
 | Import Settings | Overwrites current config |
 | Export History | All briefings as JSON |
@@ -858,15 +914,17 @@ All data lives in your browser's localStorage. Clearing browser data will erase 
 | Import Everything | Full restore |
 
 **Moving to a new browser/machine:**
+
 1. Export Everything from old browser
 2. Open app in new browser
 3. Import Everything → fully restored
 
 #### 6.5.7 Troubleshooting
 
-**"API key invalid"** — Check key at console.anthropic.com. Ensure it starts with "sk-ant-". Keys are project-scoped — make sure the key has Messages API access.
+**"API key invalid"** — Check key at <https://console.anthropic.com>. Ensure it starts with "sk-ant-". Keys are project-scoped — make sure the key has Messages API access.
 
 **Briefing is vague or missing data:**
+
 - Check prompt hints in Admin — vague hints produce vague results
 - Try Opus for deeper synthesis
 - Add specific instructions in the editable prompt like "search CME FedWatch specifically"
@@ -883,7 +941,7 @@ All data lives in your browser's localStorage. Clearing browser data will erase 
 Costs are per-run and depend on model + response length + number of web searches performed:
 
 | Configuration | Estimated Cost |
-|--------------|---------------|
+| -------------- | --------------- |
 | Sonnet + Concise | ~$0.03–0.05 |
 | Sonnet + Standard | ~$0.05–0.10 |
 | Sonnet + Deep Dive | ~$0.10–0.15 |
@@ -893,7 +951,7 @@ Costs are per-run and depend on model + response length + number of web searches
 | Daily Sonnet/Standard | ~$2–3/month |
 | Daily Opus/Standard | ~$8–12/month |
 
-Check usage at console.anthropic.com/usage
+Check usage at <https://console.anthropic.com/usage>.
 
 ---
 
@@ -902,13 +960,14 @@ Check usage at console.anthropic.com/usage
 ### 7.1 localStorage Keys
 
 | Key | Contents |
-|-----|----------|
+| --- | -------- |
 | `mb_api_key` | Anthropic API key |
 | `mb_settings` | Active config (default model, enabled topics, watchlist, active coverage types, active style, custom instructions) |
 | `mb_admin` | Admin config (all topics, categories, coverage types, styles, models, system prompt, user prompt template) |
 | `mb_history` | Array of briefing records |
 
 ### 7.2 Settings Object
+
 ```json
 {
   "default_model": "claude-sonnet-4-5-20250929",
@@ -921,6 +980,7 @@ Check usage at console.anthropic.com/usage
 ```
 
 ### 7.3 Admin Object
+
 ```json
 {
   "categories": [
@@ -1067,6 +1127,7 @@ Check usage at console.anthropic.com/usage
 ## 8. Technical Requirements
 
 ### 8.1 Stack
+
 - **Single HTML file** with embedded CSS and JavaScript
 - **No frameworks** — vanilla JS, no React/Vue/npm
 - **No server** — runs entirely in browser
@@ -1074,24 +1135,29 @@ Check usage at console.anthropic.com/usage
 - **fetch()** for API calls directly to Anthropic
 
 ### 8.2 API Requirements
+
 - Anthropic API key with Messages API access
 - Web search tool: `web_search_20250305`
 - CORS: Requires `anthropic-dangerous-direct-browser-access: true` header
 - API version: `2023-06-01`
 
 ### 8.3 Response Parsing
+
 API responses include mixed content blocks (text + tool_use for web search). The app must:
+
 1. Iterate through `response.content` array
 2. Extract all `type: "text"` blocks
 3. Concatenate text blocks into final briefing
 4. Optionally extract search citations from tool_use results
 
 ### 8.4 Browser Compatibility
+
 - Modern browsers (Chrome, Firefox, Edge, Safari)
 - localStorage support required
 - fetch() API required
 
 ### 8.5 Deployment Options
+
 - **Local:** Double-click index.html to open in browser
 - **Netlify:** Deploy as static site (drag-and-drop index.html)
 - **GitHub Pages:** Push to repo, enable Pages
@@ -1115,7 +1181,7 @@ API responses include mixed content blocks (text + tool_use for web search). The
 
 Although the app is a single HTML file, the logical structure is:
 
-```
+```text
 MarketAIAggregator/
 ├── index.html              # The entire application
 ├── Docs/

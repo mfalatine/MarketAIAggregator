@@ -54,6 +54,105 @@ const DEFAULT_SETTINGS = {
     theme: 'dark'
 };
 
+const UI_STATE_KEY = 'mb_ui_state';
+const VALID_TABS = ['dashboard', 'history', 'settings', 'admin', 'guide'];
+const DEFAULT_UI_STATE = {
+    active_tab: 'dashboard',
+    dashboard: {
+        model_id: '',
+        date_from: '',
+        date_to: '',
+        prompt_draft: '',
+        original_prompt: '',
+        prompt_visible: false,
+        snapshot_checked: false
+    },
+    settings_draft: null,
+    history_search: ''
+};
+
+function cloneJSON(value) { return JSON.parse(JSON.stringify(value)); }
+
+function sanitizeStringArray(value) {
+    if (!Array.isArray(value)) return [];
+    return value.filter(v => typeof v === 'string');
+}
+
+function normalizeUIState(raw) {
+    const base = cloneJSON(DEFAULT_UI_STATE);
+    if (!raw || typeof raw !== 'object') return base;
+
+    if (typeof raw.active_tab === 'string' && VALID_TABS.includes(raw.active_tab)) {
+        base.active_tab = raw.active_tab;
+    }
+
+    if (raw.dashboard && typeof raw.dashboard === 'object') {
+        if (typeof raw.dashboard.model_id === 'string') base.dashboard.model_id = raw.dashboard.model_id;
+        if (typeof raw.dashboard.date_from === 'string') base.dashboard.date_from = raw.dashboard.date_from;
+        if (typeof raw.dashboard.date_to === 'string') base.dashboard.date_to = raw.dashboard.date_to;
+        if (typeof raw.dashboard.prompt_draft === 'string') base.dashboard.prompt_draft = raw.dashboard.prompt_draft;
+        if (typeof raw.dashboard.original_prompt === 'string') base.dashboard.original_prompt = raw.dashboard.original_prompt;
+        if (typeof raw.dashboard.prompt_visible === 'boolean') base.dashboard.prompt_visible = raw.dashboard.prompt_visible;
+        if (typeof raw.dashboard.snapshot_checked === 'boolean') base.dashboard.snapshot_checked = raw.dashboard.snapshot_checked;
+    }
+
+    if (raw.settings_draft && typeof raw.settings_draft === 'object') {
+        base.settings_draft = {
+            api_key: typeof raw.settings_draft.api_key === 'string' ? raw.settings_draft.api_key : '',
+            gemini_key: typeof raw.settings_draft.gemini_key === 'string' ? raw.settings_draft.gemini_key : '',
+            default_model: typeof raw.settings_draft.default_model === 'string' ? raw.settings_draft.default_model : '',
+            enabled_topics: sanitizeStringArray(raw.settings_draft.enabled_topics),
+            watchlist: sanitizeStringArray(raw.settings_draft.watchlist),
+            enabled_coverage: sanitizeStringArray(raw.settings_draft.enabled_coverage),
+            active_style: typeof raw.settings_draft.active_style === 'string' ? raw.settings_draft.active_style : '',
+            custom_instructions: typeof raw.settings_draft.custom_instructions === 'string' ? raw.settings_draft.custom_instructions : '',
+            theme: typeof raw.settings_draft.theme === 'string' ? raw.settings_draft.theme : 'light'
+        };
+    }
+
+    if (typeof raw.history_search === 'string') {
+        base.history_search = raw.history_search;
+    }
+
+    return base;
+}
+
+function loadUIState() {
+    try {
+        const raw = localStorage.getItem(UI_STATE_KEY);
+        if (!raw) return cloneJSON(DEFAULT_UI_STATE);
+        return normalizeUIState(JSON.parse(raw));
+    } catch (e) {
+        console.error('Error loading UI state:', e);
+        return cloneJSON(DEFAULT_UI_STATE);
+    }
+}
+
+let uiState = normalizeUIState(loadUIState());
+
+function saveUIState() {
+    if (!uiState) return;
+    try {
+        localStorage.setItem(UI_STATE_KEY, JSON.stringify(uiState));
+    } catch (e) {
+        console.error('Error saving UI state:', e);
+    }
+}
+
+function updateUIState(mutator) {
+    if (!uiState) uiState = normalizeUIState(loadUIState());
+    mutator(uiState);
+    saveUIState();
+}
+
+function isValidTab(tabName) {
+    return VALID_TABS.includes(tabName);
+}
+
+function normalizeTabName(tabName) {
+    return isValidTab(tabName) ? tabName : 'dashboard';
+}
+
 // ================================================================
 // SECTION 2: STATE MANAGEMENT & LOCALSTORAGE
 // ================================================================
@@ -136,6 +235,7 @@ function initializeApp() {
     if (!loadAdmin()) saveAdmin(JSON.parse(JSON.stringify(DEFAULT_ADMIN)));
     if (!loadSettings()) saveSettings(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
     if (!localStorage.getItem('mb_history')) saveHistory([]);
+    uiState = normalizeUIState(loadUIState());
 
     // Migration: add description field to existing categories that lack it
     const admin = loadAdmin();
@@ -175,8 +275,9 @@ function initializeApp() {
     const settings = loadSettings();
     applyTheme(settings.theme || 'light');
     initThemeSelector();
+    bindSettingsDraftListeners();
 
-    switchTab('dashboard');
+    switchTab(normalizeTabName(uiState.active_tab), { persist: false });
 
     if (!loadApiKey() && !loadGeminiApiKey()) {
         document.getElementById('dashboard-banner').innerHTML = '<div class="banner banner-warning"><strong>No API Key</strong> — Go to <a href="#" onclick="switchTab(\'settings\');return false" style="font-weight:700;text-decoration:underline">Settings</a> to add your API key.</div>';
@@ -186,18 +287,97 @@ function initializeApp() {
 // ================================================================
 // SECTION 4: TAB NAVIGATION
 // ================================================================
-function switchTab(tabName) {
+function getActiveTabName() {
+    const active = document.querySelector('.tab-content.active');
+    if (!active) return '';
+    return active.id.replace('tab-', '');
+}
+
+function persistDashboardStateFromDOM() {
+    const modelSelect = document.getElementById('dashboard-model');
+    const promptEl = document.getElementById('prompt-textarea');
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    const promptVisible = document.getElementById('prompt-section').style.display !== 'none';
+    const snapshotInput = document.getElementById('chk-snapshot');
+
+    updateUIState(state => {
+        state.dashboard.model_id = modelSelect?.value || state.dashboard.model_id;
+        state.dashboard.date_from = fromInput?.dataset.date || state.dashboard.date_from;
+        state.dashboard.date_to = toInput?.dataset.date || state.dashboard.date_to;
+        state.dashboard.prompt_draft = promptEl?.value || '';
+        state.dashboard.original_prompt = originalPrompt || '';
+        state.dashboard.prompt_visible = promptVisible || !!(promptEl && promptEl.value.trim());
+        state.dashboard.snapshot_checked = !!snapshotInput?.checked;
+    });
+}
+
+function persistSettingsDraftFromDOM() {
+    const tab = document.getElementById('tab-settings');
+    if (!tab || !tab.classList.contains('active')) return;
+
+    const modelRadio = document.querySelector('input[name="settings-model"]:checked');
+    const styleRadio = document.querySelector('input[name="settings-style"]:checked');
+    const themeRadio = document.querySelector('input[name="settings-theme"]:checked');
+    const enabledTopics = Array.from(document.querySelectorAll('input[name="settings-topic"]:checked')).map(cb => cb.value);
+    const enabledCoverage = Array.from(document.querySelectorAll('input[name="settings-coverage"]:checked')).map(cb => cb.value);
+
+    updateUIState(state => {
+        state.settings_draft = {
+            api_key: document.getElementById('settings-apikey')?.value || '',
+            gemini_key: document.getElementById('settings-gemini-key')?.value || '',
+            default_model: modelRadio ? modelRadio.value : '',
+            enabled_topics: enabledTopics,
+            watchlist: [...settingsWatchlist],
+            enabled_coverage: enabledCoverage,
+            active_style: styleRadio ? styleRadio.value : '',
+            custom_instructions: document.getElementById('settings-instructions')?.value || '',
+            theme: themeRadio ? themeRadio.value : 'light'
+        };
+    });
+}
+
+function clearSettingsDraftState() {
+    updateUIState(state => { state.settings_draft = null; });
+}
+
+let settingsDraftListenerBound = false;
+function bindSettingsDraftListeners() {
+    if (settingsDraftListenerBound) return;
+    const settingsTab = document.getElementById('tab-settings');
+    if (!settingsTab) return;
+    const persistDraft = debounce(() => persistSettingsDraftFromDOM(), 160);
+    settingsTab.addEventListener('input', persistDraft);
+    settingsTab.addEventListener('change', persistDraft);
+    settingsDraftListenerBound = true;
+}
+
+function switchTab(tabName, options = {}) {
+    const nextTab = normalizeTabName(tabName);
+    const currentTab = getActiveTabName();
+
+    if (currentTab === 'dashboard' && nextTab !== 'dashboard') {
+        persistDashboardStateFromDOM();
+    }
+    if (currentTab === 'settings' && nextTab !== 'settings') {
+        persistSettingsDraftFromDOM();
+    }
+
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    const tab = document.getElementById('tab-' + tabName);
+    const tab = document.getElementById('tab-' + nextTab);
     if (tab) tab.classList.add('active');
-    const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    const btn = document.querySelector(`.tab-btn[data-tab="${nextTab}"]`);
     if (btn) btn.classList.add('active');
 
-    if (tabName === 'dashboard') renderDashboard();
-    else if (tabName === 'history') renderHistory();
-    else if (tabName === 'settings') renderSettings();
-    else if (tabName === 'admin') renderAdmin();
+    if (nextTab === 'dashboard') renderDashboard();
+    else if (nextTab === 'history') renderHistory();
+    else if (nextTab === 'settings') renderSettings();
+    else if (nextTab === 'admin') renderAdmin();
+
+    if (options.persist !== false) {
+        updateUIState(state => { state.active_tab = nextTab; });
+    }
 }
 
 // ================================================================
@@ -223,6 +403,10 @@ function formatTimestamp(iso) {
 }
 
 function todayISO() { return new Date().toISOString().split('T')[0]; }
+
+function formatDateISO(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 
 function escapeHtml(str) {
     const div = document.createElement('div');
@@ -329,33 +513,220 @@ function renderMarkdown(text) {
 // ================================================================
 // SECTION 6: API INTEGRATION
 // ================================================================
-async function callAnthropicAPI(systemPrompt, userPrompt, modelId, maxTokens) {
-    const apiKey = loadApiKey();
-    if (!apiKey) throw new Error('API key not configured');
+const RETRY_POLICY = {
+    timeout_ms: 30000,
+    max_retries: 4,
+    base_delay_ms: 500,
+    max_delay_ms: 8000,
+    jitter_ms: 250
+};
+const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-            model: modelId,
-            max_tokens: maxTokens,
-            system: systemPrompt,
-            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-            messages: [{ role: 'user', content: userPrompt }]
-        })
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function computeBackoffDelayMs(attemptIndex) {
+    const exponential = Math.min(RETRY_POLICY.max_delay_ms, RETRY_POLICY.base_delay_ms * (2 ** attemptIndex));
+    const jitter = Math.floor(Math.random() * (RETRY_POLICY.jitter_ms + 1));
+    return exponential + jitter;
+}
+
+function parseRetryAfterMs(retryAfterValue) {
+    if (!retryAfterValue) return null;
+    const seconds = Number(retryAfterValue);
+    if (!Number.isNaN(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+    const retryAt = Date.parse(retryAfterValue);
+    if (Number.isNaN(retryAt)) return null;
+    return Math.max(0, retryAt - Date.now());
+}
+
+function buildApiError({ provider, message, type = 'provider', status = null, retryable = false, retryAfterMs = null, details = null }) {
+    const error = new Error(message);
+    error.provider = provider;
+    error.type = type;
+    error.status = status;
+    error.retryable = retryable;
+    error.retryAfterMs = retryAfterMs;
+    error.details = details;
+    return error;
+}
+
+function normalizeApiError(error, provider) {
+    if (error && typeof error === 'object' && error.type && Object.prototype.hasOwnProperty.call(error, 'retryable')) {
+        return error;
+    }
+    if (error?.name === 'AbortError') {
+        return buildApiError({
+            provider,
+            message: 'Request timed out',
+            type: 'timeout',
+            retryable: true
+        });
+    }
+    if (error instanceof TypeError) {
+        return buildApiError({
+            provider,
+            message: 'Network request failed',
+            type: 'network',
+            retryable: true
+        });
+    }
+    return buildApiError({
+        provider,
+        message: error?.message || 'Request failed',
+        type: 'provider',
+        retryable: false,
+        details: error
     });
+}
 
+async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function parseErrorBody(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+        return response.json().catch(() => ({}));
+    }
+    const text = await response.text().catch(() => '');
+    return text ? { message: text } : {};
+}
+
+function getErrorMessageFromPayload(payload, status, fallbackPrefix) {
+    if (!payload) return fallbackPrefix + ' error: ' + status;
+    if (typeof payload.error === 'string') return payload.error;
+    if (payload.error?.message) return payload.error.message;
+    if (payload.message) return payload.message;
+    return fallbackPrefix + ' error: ' + status;
+}
+
+function getErrorTypeFromStatus(status) {
+    if (status === 429) return 'rate_limit';
+    if (status === 401 || status === 403) return 'auth';
+    if (status === 408) return 'timeout';
+    if (status >= 500) return 'provider';
+    return 'provider';
+}
+
+async function fetchProviderJSON({ provider, url, options, providerLabel }) {
+    const response = await fetchWithTimeout(url, options, RETRY_POLICY.timeout_ms);
     if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429) throw new Error('Rate limited. Please wait a moment and try again.');
-        throw new Error(err.error?.message || 'API error: ' + response.status);
+        const payload = await parseErrorBody(response);
+        throw buildApiError({
+            provider,
+            message: getErrorMessageFromPayload(payload, response.status, providerLabel),
+            type: getErrorTypeFromStatus(response.status),
+            status: response.status,
+            retryable: RETRYABLE_STATUS_CODES.has(response.status),
+            retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+            details: payload
+        });
     }
     return response.json();
+}
+
+async function requestWithRetry({ provider, operation, onRetry }) {
+    let attempt = 0;
+    while (attempt <= RETRY_POLICY.max_retries) {
+        try {
+            return await operation();
+        } catch (error) {
+            const normalized = normalizeApiError(error, provider);
+            const shouldRetry = normalized.retryable && attempt < RETRY_POLICY.max_retries;
+            if (!shouldRetry) throw normalized;
+
+            const waitMs = normalized.retryAfterMs ?? computeBackoffDelayMs(attempt);
+            if (typeof onRetry === 'function') {
+                onRetry({
+                    attempt: attempt + 1,
+                    maxRetries: RETRY_POLICY.max_retries,
+                    delayMs: waitMs,
+                    error: normalized
+                });
+            }
+            await sleep(waitMs);
+            attempt += 1;
+        }
+    }
+    throw buildApiError({ provider, message: 'Retries exhausted', type: 'provider', retryable: false });
+}
+
+function formatRequestErrorForUI(error, provider) {
+    const providerLabel = provider === 'google' ? 'Google Gemini' : 'Anthropic';
+    const normalized = normalizeApiError(error, provider);
+    if (normalized.type === 'rate_limit') {
+        return providerLabel + ' rate limit reached. Wait briefly and try again.';
+    }
+    if (normalized.type === 'auth') {
+        return providerLabel + ' API key was rejected. Update it in Settings.';
+    }
+    if (normalized.type === 'network') {
+        return 'Network error contacting ' + providerLabel + '. Check your connection.';
+    }
+    if (normalized.type === 'timeout') {
+        return providerLabel + ' request timed out. Try again.';
+    }
+    return normalized.message || providerLabel + ' request failed.';
+}
+
+function formatRetryStatusMessage({ provider, attempt, maxRetries, delayMs, error }) {
+    const providerLabel = provider === 'google' ? 'Google Gemini' : 'Anthropic';
+    const nextSeconds = (delayMs / 1000).toFixed(1);
+    if (error.type === 'rate_limit') {
+        return providerLabel + ' rate limited this request. Retry ' + attempt + '/' + maxRetries + ' in ' + nextSeconds + 's...';
+    }
+    return providerLabel + ' request failed temporarily. Retry ' + attempt + '/' + maxRetries + ' in ' + nextSeconds + 's...';
+}
+
+async function callAnthropicAPI(systemPrompt, userPrompt, modelId, maxTokens, options = {}) {
+    const apiKey = loadApiKey();
+    if (!apiKey) {
+        throw buildApiError({
+            provider: 'anthropic',
+            message: 'API key not configured',
+            type: 'auth',
+            retryable: false
+        });
+    }
+
+    const request = {
+        url: 'https://api.anthropic.com/v1/messages',
+        options: {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify({
+                model: modelId,
+                max_tokens: maxTokens,
+                system: systemPrompt,
+                tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+                messages: [{ role: 'user', content: userPrompt }]
+            })
+        }
+    };
+
+    return requestWithRetry({
+        provider: 'anthropic',
+        operation: () => fetchProviderJSON({
+            provider: 'anthropic',
+            url: request.url,
+            options: request.options,
+            providerLabel: 'Anthropic'
+        }),
+        onRetry: options.onRetry
+    });
 }
 
 function parseAPIResponse(apiResponse) {
@@ -369,9 +740,16 @@ function parseAPIResponse(apiResponse) {
     return { text: textParts.join('\n'), model: apiResponse.model, usage: apiResponse.usage, citations };
 }
 
-async function callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens) {
+async function callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens, options = {}) {
     const apiKey = loadGeminiApiKey();
-    if (!apiKey) throw new Error('Google Gemini API key not configured');
+    if (!apiKey) {
+        throw buildApiError({
+            provider: 'google',
+            message: 'Google Gemini API key not configured',
+            type: 'auth',
+            retryable: false
+        });
+    }
 
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent';
 
@@ -382,21 +760,23 @@ async function callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens) {
         generationConfig: { maxOutputTokens: maxTokens }
     };
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify(body)
+    return requestWithRetry({
+        provider: 'google',
+        operation: () => fetchProviderJSON({
+            provider: 'google',
+            url,
+            options: {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': apiKey
+                },
+                body: JSON.stringify(body)
+            },
+            providerLabel: 'Gemini API'
+        }),
+        onRetry: options.onRetry
     });
-
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429) throw new Error('Rate limited. Please wait a moment and try again.');
-        throw new Error(err.error?.message || 'Gemini API error: ' + response.status);
-    }
-    return response.json();
 }
 
 function parseGeminiResponse(apiResponse) {
@@ -412,13 +792,13 @@ function parseGeminiResponse(apiResponse) {
     return { text: textParts.join('\n'), model: '', usage: null, citations: [] };
 }
 
-async function callAPI(systemPrompt, userPrompt, modelId, maxTokens) {
+async function callAPI(systemPrompt, userPrompt, modelId, maxTokens, options = {}) {
     const provider = getProviderForModel(modelId);
     if (provider === 'google') {
-        const raw = await callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens);
+        const raw = await callGeminiAPI(systemPrompt, userPrompt, modelId, maxTokens, options);
         return parseGeminiResponse(raw);
     } else {
-        const raw = await callAnthropicAPI(systemPrompt, userPrompt, modelId, maxTokens);
+        const raw = await callAnthropicAPI(systemPrompt, userPrompt, modelId, maxTokens, options);
         return parseAPIResponse(raw);
     }
 }
@@ -426,7 +806,7 @@ async function callAPI(systemPrompt, userPrompt, modelId, maxTokens) {
 async function validateApiKey(key, provider) {
     try {
         if (provider === 'google') {
-            const response = await fetch(
+            const response = await fetchWithTimeout(
                 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
                 {
                     method: 'POST',
@@ -435,24 +815,29 @@ async function validateApiKey(key, provider) {
                         contents: [{ parts: [{ text: 'Hi' }] }],
                         generationConfig: { maxOutputTokens: 10 }
                     })
-                }
+                },
+                RETRY_POLICY.timeout_ms
             );
             return response.ok;
         } else {
-            const response = await fetch('https://api.anthropic.com/v1/messages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': key,
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-dangerous-direct-browser-access': 'true'
+            const response = await fetchWithTimeout(
+                'https://api.anthropic.com/v1/messages',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': key,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-5-20250929',
+                        max_tokens: 10,
+                        messages: [{ role: 'user', content: 'Hi' }]
+                    })
                 },
-                body: JSON.stringify({
-                    model: 'claude-sonnet-4-5-20250929',
-                    max_tokens: 10,
-                    messages: [{ role: 'user', content: 'Hi' }]
-                })
-            });
+                RETRY_POLICY.timeout_ms
+            );
             return response.ok || response.status === 200;
         }
     } catch(e) { return false; }
@@ -467,7 +852,7 @@ function assemblePrompt() {
     if (!admin || !settings) return '';
 
     let prompt = admin.user_prompt_template;
-    prompt = prompt.replace('{date}', formatDate(new Date()));
+    prompt = prompt.replace('{date}', getSelectedDateString());
     prompt = prompt.replace('{enabled_topics}', assembleTopicsBlock(admin, settings));
     prompt = prompt.replace('{watchlist}', settings.watchlist.join(', '));
     prompt = prompt.replace('{coverage_types}', assembleCoverageBlock(admin, settings));
@@ -516,6 +901,166 @@ function assembleTopicHints(admin, settings) {
 // ================================================================
 let originalPrompt = '';
 let currentBriefing = null;
+let activeCalendar = null;
+let briefingRequestInFlight = false;
+
+function updateDashboardUIState(patch) {
+    updateUIState(state => {
+        state.dashboard = { ...state.dashboard, ...patch };
+    });
+}
+
+function setDateInputFromISO(input, isoDate) {
+    if (!input || !isoDate) return;
+    const parts = isoDate.split('-');
+    if (parts.length !== 3) return;
+    const dateValue = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    if (Number.isNaN(dateValue.getTime())) return;
+    input.value = formatDate(dateValue);
+    input.dataset.date = isoDate;
+}
+
+function initDashboardDates() {
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    let fromISO = uiState?.dashboard?.date_from || '';
+    let toISO = uiState?.dashboard?.date_to || '';
+
+    if (!fromISO) {
+        fromISO = todayISO();
+    }
+    if (!toISO) {
+        toISO = fromISO;
+    }
+
+    setDateInputFromISO(fromInput, fromISO);
+    setDateInputFromISO(toInput, toISO);
+    updateDashboardUIState({
+        date_from: fromInput.dataset.date || fromISO,
+        date_to: toInput.dataset.date || toISO
+    });
+}
+
+function renderCalendar(targetId, year, month) {
+    const popup = document.getElementById('calendar-' + targetId);
+    const input = document.getElementById('date-' + targetId);
+    const selectedISO = input.dataset.date || '';
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const todayISO_val = formatDateISO(new Date());
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    let html = '<div class="calendar-header">';
+    html += '<button class="calendar-nav" onclick="navCalendar(\'' + targetId + '\',' + year + ',' + month + ',-1)">&lsaquo;</button>';
+    html += '<span class="calendar-title">' + monthNames[month] + ' ' + year + '</span>';
+    html += '<button class="calendar-nav" onclick="navCalendar(\'' + targetId + '\',' + year + ',' + month + ',1)">&rsaquo;</button>';
+    html += '</div><div class="calendar-grid">';
+
+    ['S','M','T','W','T','F','S'].forEach(function(d) { html += '<div class="calendar-dow">' + d + '</div>'; });
+
+    for (let i = 0; i < startDow; i++) {
+        const prevDate = new Date(year, month, -(startDow - 1 - i));
+        html += '<div class="calendar-day other-month">' + prevDate.getDate() + '</div>';
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        const iso = formatDateISO(new Date(year, month, d));
+        let cls = 'calendar-day';
+        if (iso === todayISO_val) cls += ' today';
+        if (iso === selectedISO) cls += ' selected';
+        html += '<div class="' + cls + '" onclick="selectCalendarDay(\'' + targetId + '\',\'' + iso + '\')">' + d + '</div>';
+    }
+
+    const endDow = lastDay.getDay();
+    for (let i = 1; i <= 6 - endDow; i++) {
+        html += '<div class="calendar-day other-month">' + i + '</div>';
+    }
+
+    html += '</div>';
+    popup.innerHTML = html;
+}
+
+function openCalendar(targetId) {
+    closeAllCalendars();
+    const input = document.getElementById('date-' + targetId);
+    const popup = document.getElementById('calendar-' + targetId);
+
+    let year, month;
+    if (input.dataset.date) {
+        const parts = input.dataset.date.split('-');
+        year = parseInt(parts[0]);
+        month = parseInt(parts[1]) - 1;
+    } else {
+        const now = new Date();
+        year = now.getFullYear();
+        month = now.getMonth();
+    }
+
+    renderCalendar(targetId, year, month);
+    popup.classList.add('visible');
+    activeCalendar = targetId;
+}
+
+function closeAllCalendars() {
+    document.querySelectorAll('.calendar-popup').forEach(function(p) { p.classList.remove('visible'); });
+    activeCalendar = null;
+}
+
+function navCalendar(targetId, year, month, delta) {
+    let newMonth = month + delta;
+    let newYear = year;
+    if (newMonth < 0) { newMonth = 11; newYear--; }
+    if (newMonth > 11) { newMonth = 0; newYear++; }
+    renderCalendar(targetId, newYear, newMonth);
+}
+
+function selectCalendarDay(targetId, isoDate) {
+    const input = document.getElementById('date-' + targetId);
+    const parts = isoDate.split('-');
+    const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    input.value = formatDate(d);
+    input.dataset.date = isoDate;
+    if (targetId === 'from') {
+        updateDashboardUIState({ date_from: isoDate });
+    } else if (targetId === 'to') {
+        updateDashboardUIState({ date_to: isoDate });
+    }
+    closeAllCalendars();
+}
+
+function getSelectedDateString() {
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+
+    let fromISO = fromInput.dataset.date || '';
+    let toISO = toInput.dataset.date || '';
+
+    if (!fromISO) {
+        return formatDate(new Date());
+    }
+
+    if (!toISO || fromISO === toISO) {
+        const parts = fromISO.split('-');
+        return formatDate(new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+    }
+
+    // Swap if To < From
+    if (toISO < fromISO) { const tmp = fromISO; fromISO = toISO; toISO = tmp; }
+
+    const fromParts = fromISO.split('-');
+    const toParts = toISO.split('-');
+    const fromD = new Date(parseInt(fromParts[0]), parseInt(fromParts[1]) - 1, parseInt(fromParts[2]));
+    const toD = new Date(parseInt(toParts[0]), parseInt(toParts[1]) - 1, parseInt(toParts[2]));
+
+    if (fromD.getFullYear() !== toD.getFullYear()) {
+        return formatDate(fromD) + ' through ' + formatDate(toD);
+    }
+    const fromStr = fromD.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    return fromStr + ' through ' + formatDate(toD);
+}
 
 function renderDashboard() {
     const admin = loadAdmin();
@@ -527,8 +1072,53 @@ function renderDashboard() {
         '<option value="' + m.id + '"' + (m.id === settings.default_model ? ' selected' : '') + '>' + escapeHtml(m.name) + ' — ' + escapeHtml(m.cost_note) + '</option>'
     ).join('');
 
+    const preferredModel = uiState.dashboard.model_id && admin.models.some(m => m.id === uiState.dashboard.model_id)
+        ? uiState.dashboard.model_id
+        : settings.default_model;
+    if (preferredModel && admin.models.some(m => m.id === preferredModel)) {
+        select.value = preferredModel;
+    }
+    if (!select.value && admin.models.length > 0) select.value = admin.models[0].id;
+    updateDashboardUIState({ model_id: select.value });
+
+    initDashboardDates();
+    document.getElementById('chk-snapshot').checked = !!uiState.dashboard.snapshot_checked;
+
+    const promptSection = document.getElementById('prompt-section');
+    const promptEl = document.getElementById('prompt-textarea');
+    const briefingSection = document.getElementById('briefing-section');
+    const statusSection = document.getElementById('status-section');
+    const statusText = document.getElementById('status-text');
+    const btnRun = document.getElementById('btn-run');
+
+    if (uiState.dashboard.prompt_draft) {
+        promptEl.value = uiState.dashboard.prompt_draft;
+        originalPrompt = uiState.dashboard.original_prompt || uiState.dashboard.prompt_draft;
+    } else if (!currentBriefing) {
+        promptEl.value = '';
+        originalPrompt = '';
+    }
+
+    if (uiState.dashboard.prompt_visible || uiState.dashboard.prompt_draft) {
+        promptSection.style.display = '';
+    } else if (!currentBriefing) {
+        promptSection.style.display = 'none';
+    }
+
+    if (briefingRequestInFlight) {
+        statusSection.style.display = '';
+        if (!statusText.textContent.trim()) statusText.textContent = 'Generating briefing...';
+        briefingSection.style.display = 'none';
+        btnRun.disabled = true;
+    } else {
+        statusSection.style.display = 'none';
+        btnRun.disabled = false;
+    }
+
     if (currentBriefing) {
         displayBriefing(currentBriefing);
+    } else if (!briefingRequestInFlight) {
+        briefingSection.style.display = 'none';
     }
 }
 
@@ -552,6 +1142,12 @@ function buildPrompt() {
         document.getElementById('prompt-section').style.display = '';
         document.getElementById('briefing-section').style.display = 'none';
         document.getElementById('status-section').style.display = 'none';
+        updateDashboardUIState({
+            model_id: selectedModelId,
+            prompt_draft: prompt,
+            original_prompt: prompt,
+            prompt_visible: true
+        });
     } catch (e) {
         console.error('buildPrompt error:', e);
         showToast('Error building prompt: ' + e.message, 'error');
@@ -562,6 +1158,11 @@ function resetPrompt() {
     const prompt = assemblePrompt();
     originalPrompt = prompt;
     document.getElementById('prompt-textarea').value = prompt;
+    updateDashboardUIState({
+        prompt_draft: prompt,
+        original_prompt: prompt,
+        prompt_visible: true
+    });
 }
 
 async function runBriefing() {
@@ -574,9 +1175,10 @@ async function runBriefing() {
     const key = getApiKeyForProvider(provider);
     if (!key) {
         const providerName = provider === 'google' ? 'Google Gemini' : 'Anthropic';
-        showToast(providerName + ' API key required — go to Settings to add your key', 'error');
+        showToast(providerName + ' API key required - go to Settings to add your key', 'error');
         return;
     }
+    if (briefingRequestInFlight) return;
 
     const userPrompt = document.getElementById('prompt-textarea').value;
     const isModified = userPrompt !== originalPrompt;
@@ -584,17 +1186,35 @@ async function runBriefing() {
     const activeStyle = admin.styles.find(s => s.id === settings.active_style);
     const maxTokens = activeStyle ? activeStyle.max_tokens : 2000;
 
+    briefingRequestInFlight = true;
     document.getElementById('status-section').style.display = '';
     document.getElementById('status-text').textContent = 'Generating briefing...';
     document.getElementById('briefing-section').style.display = 'none';
     document.getElementById('btn-run').disabled = true;
+    updateDashboardUIState({
+        model_id: selectedModelId,
+        prompt_draft: userPrompt,
+        original_prompt: originalPrompt,
+        prompt_visible: true
+    });
 
     try {
-        const parsed = await callAPI(admin.system_prompt, userPrompt, selectedModelId, maxTokens);
+        const parsed = await callAPI(admin.system_prompt, userPrompt, selectedModelId, maxTokens, {
+            onRetry: (retryContext) => {
+                document.getElementById('status-text').textContent = formatRetryStatusMessage({
+                    provider,
+                    attempt: retryContext.attempt,
+                    maxRetries: retryContext.maxRetries,
+                    delayMs: retryContext.delayMs,
+                    error: retryContext.error
+                });
+            }
+        });
 
         const record = {
             id: generateId(),
-            date: todayISO(),
+            date: document.getElementById('date-from').dataset.date || todayISO(),
+            date_to: document.getElementById('date-to').dataset.date || '',
             model: selectedModelId,
             model_label: selectedModel ? selectedModel.name : selectedModelId,
             prompt_sent: userPrompt,
@@ -613,18 +1233,30 @@ async function runBriefing() {
         currentBriefing = record;
         displayBriefing(record);
         document.getElementById('status-section').style.display = 'none';
+        updateDashboardUIState({
+            model_id: selectedModelId,
+            prompt_draft: userPrompt,
+            original_prompt: originalPrompt,
+            prompt_visible: true
+        });
         showToast('Briefing generated successfully', 'success');
     } catch (error) {
-        document.getElementById('status-text').innerHTML = '<span style="color:#dc2626">Error: ' + escapeHtml(error.message) + '</span>';
-        document.querySelector('#status-section .spinner')?.remove();
+        document.getElementById('status-text').innerHTML = '<span style="color:#dc2626">Error: ' + escapeHtml(formatRequestErrorForUI(error, provider)) + '</span>';
     } finally {
+        briefingRequestInFlight = false;
         document.getElementById('btn-run').disabled = false;
     }
 }
 
 function displayBriefing(record) {
     document.getElementById('briefing-section').style.display = '';
-    document.getElementById('briefing-date').textContent = formatDate(new Date(record.date + 'T12:00:00')) + ' — Market Briefing';
+    let dateText;
+    if (record.date_to && record.date_to !== record.date) {
+        dateText = formatDate(new Date(record.date + 'T12:00:00')) + ' through ' + formatDate(new Date(record.date_to + 'T12:00:00'));
+    } else {
+        dateText = formatDate(new Date(record.date + 'T12:00:00'));
+    }
+    document.getElementById('briefing-date').textContent = dateText + ' — Market Briefing';
     document.getElementById('briefing-model').textContent = 'Model: ' + record.model_label;
     document.getElementById('briefing-time').textContent = 'Generated: ' + formatTimestamp(record.generated_at);
 
@@ -632,6 +1264,10 @@ function displayBriefing(record) {
     if (record.prompt_modified) { modFlag.style.display = ''; } else { modFlag.style.display = 'none'; }
 
     document.getElementById('briefing-content').innerHTML = renderMarkdown(record.response);
+    updateDashboardUIState({
+        model_id: record.model,
+        prompt_visible: true
+    });
 }
 
 function viewSentPrompt() {
@@ -644,6 +1280,11 @@ function regenerateBriefing() {
     document.getElementById('prompt-textarea').value = currentBriefing.prompt_sent;
     originalPrompt = currentBriefing.prompt_sent;
     document.getElementById('prompt-section').style.display = '';
+    updateDashboardUIState({
+        prompt_draft: currentBriefing.prompt_sent,
+        original_prompt: currentBriefing.prompt_sent,
+        prompt_visible: true
+    });
     runBriefing();
 }
 
@@ -701,7 +1342,11 @@ let viewingHistoryEntry = null;
 
 function renderHistory() {
     const history = loadHistory();
-    const searchTerm = (document.getElementById('history-search')?.value || '').toLowerCase();
+    const searchInput = document.getElementById('history-search');
+    if (searchInput && searchInput.value !== (uiState.history_search || '')) {
+        searchInput.value = uiState.history_search || '';
+    }
+    const searchTerm = (searchInput?.value || '').toLowerCase();
     const listEl = document.getElementById('history-list');
     document.getElementById('history-view').style.display = 'none';
     document.getElementById('history-compare').style.display = 'none';
@@ -757,7 +1402,13 @@ function viewHistoryEntry(id) {
     document.getElementById('history-view').style.display = '';
 
     const d = new Date(entry.date + 'T12:00:00');
-    document.getElementById('history-briefing-header').innerHTML = '<h3>' + formatDate(d) + ' — Market Briefing</h3><div class="briefing-meta"><span>Model: ' + escapeHtml(entry.model_label) + '</span><span>Generated: ' + formatTimestamp(entry.generated_at) + '</span>' + (entry.prompt_modified ? '<span class="modified-flag">[modified from template]</span>' : '') + '</div>';
+    let histDateText;
+    if (entry.date_to && entry.date_to !== entry.date) {
+        histDateText = formatDate(d) + ' through ' + formatDate(new Date(entry.date_to + 'T12:00:00'));
+    } else {
+        histDateText = formatDate(d);
+    }
+    document.getElementById('history-briefing-header').innerHTML = '<h3>' + histDateText + ' — Market Briefing</h3><div class="briefing-meta"><span>Model: ' + escapeHtml(entry.model_label) + '</span><span>Generated: ' + formatTimestamp(entry.generated_at) + '</span>' + (entry.prompt_modified ? '<span class="modified-flag">[modified from template]</span>' : '') + '</div>';
     document.getElementById('history-briefing-content').innerHTML = renderMarkdown(entry.response);
 }
 
@@ -805,22 +1456,34 @@ function renderSettings() {
     const admin = loadAdmin();
     const settings = loadSettings();
     if (!admin || !settings) return;
+    const draft = uiState.settings_draft;
+    const effective = {
+        default_model: draft?.default_model || settings.default_model,
+        enabled_topics: Array.isArray(draft?.enabled_topics) ? draft.enabled_topics : settings.enabled_topics,
+        watchlist: Array.isArray(draft?.watchlist) ? draft.watchlist : settings.watchlist,
+        enabled_coverage: Array.isArray(draft?.enabled_coverage) ? draft.enabled_coverage : settings.enabled_coverage,
+        active_style: draft?.active_style || settings.active_style,
+        custom_instructions: (typeof draft?.custom_instructions === 'string') ? draft.custom_instructions : settings.custom_instructions,
+        theme: draft?.theme || settings.theme || 'light',
+        api_key: (typeof draft?.api_key === 'string') ? draft.api_key : (loadApiKey() || ''),
+        gemini_key: (typeof draft?.gemini_key === 'string') ? draft.gemini_key : (loadGeminiApiKey() || '')
+    };
 
     // API Keys
-    const key = loadApiKey();
+    const key = effective.api_key;
     const keyInput = document.getElementById('settings-apikey');
-    if (key) keyInput.value = key;
-    updateApiKeyStatus(!!key, 'apikey-status');
+    keyInput.value = key;
+    updateApiKeyStatus(!!loadApiKey(), 'apikey-status');
 
-    const geminiKey = loadGeminiApiKey();
+    const geminiKey = effective.gemini_key;
     const geminiKeyInput = document.getElementById('settings-gemini-key');
-    if (geminiKey) geminiKeyInput.value = geminiKey;
-    updateApiKeyStatus(!!geminiKey, 'gemini-key-status');
+    geminiKeyInput.value = geminiKey;
+    updateApiKeyStatus(!!loadGeminiApiKey(), 'gemini-key-status');
 
     // Models
     document.getElementById('settings-models').innerHTML = admin.models.map(m => {
         const providerLabel = (m.provider === 'google') ? 'Google' : 'Anthropic';
-        return '<label class="radio-option"><input type="radio" name="settings-model" value="' + m.id + '"' + (m.id === settings.default_model ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(m.name) + ' <span style="font-size:0.72rem;color:var(--text-faint)">(' + providerLabel + ')</span></div><div class="option-desc">' + escapeHtml(m.cost_note) + '</div></div></label>';
+        return '<label class="radio-option"><input type="radio" name="settings-model" value="' + m.id + '"' + (m.id === effective.default_model ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(m.name) + ' <span style="font-size:0.72rem;color:var(--text-faint)">(' + providerLabel + ')</span></div><div class="option-desc">' + escapeHtml(m.cost_note) + '</div></div></label>';
     }).join('');
 
     // Topics grouped by category
@@ -831,31 +1494,31 @@ function renderSettings() {
         if (topics.length === 0) continue;
         topicsHtml += '<div class="topic-group-label">' + escapeHtml(cat.name) + (cat.description ? '<span class="topic-group-desc">' + escapeHtml(cat.description) + '</span>' : '') + '</div><div class="checkbox-group">';
         topicsHtml += topics.map(t =>
-            '<label class="checkbox-option"><input type="checkbox" name="settings-topic" value="' + t.id + '"' + (settings.enabled_topics.includes(t.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(t.name) + '</div>' + (t.prompt_hint ? '<div class="option-desc">' + escapeHtml(t.prompt_hint) + '</div>' : '') + '</div></label>'
+            '<label class="checkbox-option"><input type="checkbox" name="settings-topic" value="' + t.id + '"' + (effective.enabled_topics.includes(t.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(t.name) + '</div>' + (t.prompt_hint ? '<div class="option-desc">' + escapeHtml(t.prompt_hint) + '</div>' : '') + '</div></label>'
         ).join('');
         topicsHtml += '</div>';
     }
     document.getElementById('settings-topics').innerHTML = topicsHtml;
 
     // Watchlist
-    settingsWatchlist = [...settings.watchlist];
+    settingsWatchlist = [...effective.watchlist];
     renderWatchlistTags();
 
     // Coverage
     document.getElementById('settings-coverage').innerHTML = admin.coverage_types.map(c =>
-        '<label class="checkbox-option"><input type="checkbox" name="settings-coverage" value="' + c.id + '"' + (settings.enabled_coverage.includes(c.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(c.name) + '</div><div class="option-desc">' + escapeHtml(c.prompt) + '</div></div></label>'
+        '<label class="checkbox-option"><input type="checkbox" name="settings-coverage" value="' + c.id + '"' + (effective.enabled_coverage.includes(c.id) ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(c.name) + '</div><div class="option-desc">' + escapeHtml(c.prompt) + '</div></div></label>'
     ).join('');
 
     // Styles
     document.getElementById('settings-styles').innerHTML = admin.styles.map(s =>
-        '<label class="radio-option"><input type="radio" name="settings-style" value="' + s.id + '"' + (s.id === settings.active_style ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(s.name) + ' (~' + s.word_target + ' words)</div><div class="option-desc">' + escapeHtml(s.description) + '</div></div></label>'
+        '<label class="radio-option"><input type="radio" name="settings-style" value="' + s.id + '"' + (s.id === effective.active_style ? ' checked' : '') + '><div class="option-info"><div class="option-label">' + escapeHtml(s.name) + ' (~' + s.word_target + ' words)</div><div class="option-desc">' + escapeHtml(s.description) + '</div></div></label>'
     ).join('');
 
     // Custom Instructions
-    document.getElementById('settings-instructions').value = settings.custom_instructions || '';
+    document.getElementById('settings-instructions').value = effective.custom_instructions || '';
 
     // Theme
-    applyTheme(settings.theme || 'light');
+    applyTheme(effective.theme || 'light');
 }
 
 function renderWatchlistTags() {
@@ -873,11 +1536,13 @@ function addWatchlistTicker() {
     settingsWatchlist.push(ticker);
     renderWatchlistTags();
     input.value = '';
+    persistSettingsDraftFromDOM();
 }
 
 function removeWatchlistTicker(ticker) {
     settingsWatchlist = settingsWatchlist.filter(t => t !== ticker);
     renderWatchlistTags();
+    persistSettingsDraftFromDOM();
 }
 
 function updateApiKeyStatus(valid, elementId) {
@@ -904,6 +1569,9 @@ async function saveAllSettings() {
         const valid = await validateApiKey(apiKey, 'anthropic');
         updateApiKeyStatus(valid, 'apikey-status');
         if (!valid) showToast('Anthropic API key could not be validated. It was saved but may not work.', 'error');
+    } else {
+        localStorage.removeItem('mb_api_key');
+        updateApiKeyStatus(false, 'apikey-status');
     }
 
     const geminiKey = document.getElementById('settings-gemini-key').value.trim();
@@ -912,9 +1580,12 @@ async function saveAllSettings() {
         const valid = await validateApiKey(geminiKey, 'google');
         updateApiKeyStatus(valid, 'gemini-key-status');
         if (!valid) showToast('Gemini API key could not be validated. It was saved but may not work.', 'error');
+    } else {
+        localStorage.removeItem('mb_gemini_api_key');
+        updateApiKeyStatus(false, 'gemini-key-status');
     }
 
-    if (apiKey || geminiKey) {
+    if (loadApiKey() || loadGeminiApiKey()) {
         document.getElementById('settings-banner').innerHTML = '';
         document.getElementById('dashboard-banner').innerHTML = '';
     }
@@ -935,6 +1606,8 @@ async function saveAllSettings() {
         theme: themeRadio ? themeRadio.value : 'light'
     };
     saveSettings(settings);
+    clearSettingsDraftState();
+    updateDashboardUIState({ model_id: settings.default_model });
     showToast('Settings saved', 'success');
 }
 
@@ -1484,6 +2157,11 @@ function importSettings() {
             if (data.mb_settings) saveSettings(data.mb_settings);
             if (data.mb_api_key) saveApiKey(data.mb_api_key);
             if (data.mb_gemini_api_key) saveGeminiApiKey(data.mb_gemini_api_key);
+            clearSettingsDraftState();
+            const importedSettings = loadSettings();
+            if (importedSettings?.default_model) {
+                updateDashboardUIState({ model_id: importedSettings.default_model });
+            }
             renderSettings();
             showToast('Settings imported', 'success');
         } catch(e) { showToast('Invalid file format', 'error'); }
@@ -1533,6 +2211,11 @@ function importEverything() {
             if (data.mb_settings) saveSettings(data.mb_settings);
             if (data.mb_admin) saveAdmin(data.mb_admin);
             if (data.mb_history) saveHistory(data.mb_history);
+            clearSettingsDraftState();
+            const importedSettings = loadSettings();
+            if (importedSettings?.default_model) {
+                updateDashboardUIState({ model_id: importedSettings.default_model });
+            }
             renderSettings();
             showToast('Full backup restored', 'success');
         } catch(e) { showToast('Invalid file format', 'error'); }
@@ -1554,6 +2237,7 @@ function resetEverything() {
         localStorage.removeItem('mb_settings');
         localStorage.removeItem('mb_admin');
         localStorage.removeItem('mb_history');
+        localStorage.removeItem(UI_STATE_KEY);
         currentBriefing = null;
         initializeApp();
         showToast('Reset to defaults', 'success');
@@ -1567,11 +2251,49 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
+document.getElementById('date-from').addEventListener('click', function() { openCalendar('from'); });
+document.getElementById('date-to').addEventListener('click', function() { openCalendar('to'); });
+
+document.addEventListener('click', function(e) {
+    if (activeCalendar) {
+        const popup = document.getElementById('calendar-' + activeCalendar);
+        const input = document.getElementById('date-' + activeCalendar);
+        if (!popup.contains(e.target) && e.target !== input) {
+            closeAllCalendars();
+        }
+    }
+});
+
 document.getElementById('watchlist-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addWatchlistTicker(); }
 });
 
-document.getElementById('history-search').addEventListener('input', debounce(renderHistory, 300));
+document.getElementById('dashboard-model').addEventListener('change', (e) => {
+    updateDashboardUIState({ model_id: e.target.value });
+});
+
+document.getElementById('prompt-textarea').addEventListener('input', debounce((e) => {
+    updateDashboardUIState({
+        prompt_draft: e.target.value,
+        prompt_visible: true
+    });
+}, 180));
+
+document.getElementById('chk-snapshot').addEventListener('change', (e) => {
+    updateDashboardUIState({ snapshot_checked: !!e.target.checked });
+});
+
+const handleHistorySearchInput = debounce(() => {
+    const value = document.getElementById('history-search').value;
+    updateUIState(state => { state.history_search = value; });
+    renderHistory();
+}, 300);
+document.getElementById('history-search').addEventListener('input', handleHistorySearchInput);
+
+window.addEventListener('beforeunload', () => {
+    persistDashboardStateFromDOM();
+    persistSettingsDraftFromDOM();
+});
 
 function scrollGuide(id) {
     const el = document.getElementById(id);
@@ -1580,3 +2302,4 @@ function scrollGuide(id) {
 
 // Start the app
 initializeApp();
+
