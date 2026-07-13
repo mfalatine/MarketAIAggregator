@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_PROFILES, buildPrompt, compareBriefings, createSampleBriefing, estimateRunCost, normalizeBriefing, normalizeProfile, todayISO } from '../js/core.js';
+import { DEFAULT_PROFILES, buildPrompt, compareBriefings, createSampleBriefing, estimateRunCost, html, normalizeBriefing, normalizeProfile, raw, todayISO } from '../js/core.js';
+
+test('html tagged template escapes interpolations by default', () => {
+  const hostile = '<img src=x onerror="alert(1)">';
+  const markup = String(html`<div title="${hostile}">${hostile}</div>`);
+  assert.equal(markup.includes('<img'), false);
+  assert.ok(markup.includes('&lt;img'));
+  assert.equal(String(html`<ul>${[html`<li>a</li>`, html`<li>b</li>`]}</ul>`), '<ul><li>a</li><li>b</li></ul>');
+  assert.equal(String(html`<p>${raw('<b>ok</b>')}${null}${false}</p>`), '<p><b>ok</b></p>');
+});
 
 test('buildPrompt assembles profile, run overrides, evidence rules, and JSON shape', () => {
   const prompt = buildPrompt({ profile: DEFAULT_PROFILES[0], depth: 'deep', dateFrom: '2026-07-01', dateTo: '2026-07-12', extraTickers: 'AVGO, TSLA', extraInstructions: 'Challenge consensus.' });

@@ -90,6 +90,18 @@ export function todayISO(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 export function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
+
+// Escaping-by-default markup builder. Interpolations are escaped unless they are html`` results,
+// arrays of them, or explicit raw() wrappers; null/undefined/false render as nothing.
+class SafeHtml { constructor(value) { this.value = value; } toString() { return this.value; } }
+function toSafeString(value) {
+  if (value instanceof SafeHtml) return value.value;
+  if (Array.isArray(value)) return value.map(toSafeString).join('');
+  if (value === null || value === undefined || value === false) return '';
+  return escapeHtml(value);
+}
+export function raw(value) { return new SafeHtml(String(value === null || value === undefined ? '' : value)); }
+export function html(strings, ...values) { return new SafeHtml(strings.reduce((out, chunk, index) => out + toSafeString(values[index - 1]) + chunk)); }
 export function sanitizeUrl(value) { try { const url = new URL(value); return /^https?:$/.test(url.protocol) ? url.href : ''; } catch { return ''; } }
 export function formatDate(iso, options = { month: 'short', day: 'numeric', year: 'numeric' }) { if (!iso) return '—'; const date = new Date(`${iso.slice(0, 10)}T12:00:00`); return Number.isNaN(date.getTime()) ? iso : new Intl.DateTimeFormat('en-US', options).format(date); }
 export function formatDateTime(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date); }

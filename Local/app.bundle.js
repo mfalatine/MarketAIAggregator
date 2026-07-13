@@ -208,6 +208,23 @@
   function escapeHtml(value = "") {
     return String(value).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
   }
+  var SafeHtml = class {
+    constructor(value) {
+      this.value = value;
+    }
+    toString() {
+      return this.value;
+    }
+  };
+  function toSafeString(value) {
+    if (value instanceof SafeHtml) return value.value;
+    if (Array.isArray(value)) return value.map(toSafeString).join("");
+    if (value === null || value === void 0 || value === false) return "";
+    return escapeHtml(value);
+  }
+  function html(strings, ...values) {
+    return new SafeHtml(strings.reduce((out, chunk, index) => out + toSafeString(values[index - 1]) + chunk));
+  }
   function sanitizeUrl(value) {
     try {
       const url = new URL(value);
@@ -655,7 +672,6 @@ Requirements:
   state.currentRecord = state.history.find((item) => item.kind === "briefing") || null;
   var $ = (selector) => document.querySelector(selector);
   var $$ = (selector) => [...document.querySelectorAll(selector)];
-  var join = (values) => values.filter(Boolean).join("");
   function applyRuntimeIdentity() {
     document.documentElement.dataset.runtime = "local";
     document.title = "Market AI Aggregator \u2014 Local";
@@ -674,10 +690,10 @@ Requirements:
   }
   function modelOptions(transport, selectedId) {
     const providerNames = { codex: "Codex subscription", claude: "Claude subscription" };
-    return modelsForTransport(transport).map((model) => {
+    return html`${modelsForTransport(transport).map((model) => {
       const unavailable = state.cliStatus && !cliEngineStatus(model.provider)?.available;
-      return `<option value="${escapeHtml(model.id)}" ${model.id === selectedId ? "selected" : ""} ${unavailable ? "disabled" : ""}>${escapeHtml(providerNames[model.provider])} \u2014 ${escapeHtml(model.name)} \xB7 ${escapeHtml(model.speed)}${unavailable ? " \xB7 unavailable" : ""}</option>`;
-    }).join("");
+      return html`<option value="${model.id}" ${model.id === selectedId ? "selected" : ""} ${unavailable ? "disabled" : ""}>${providerNames[model.provider]} — ${model.name} · ${model.speed}${unavailable ? " \xB7 unavailable" : ""}</option>`;
+    })}`;
   }
   async function refreshCliStatus({ refresh = false, rerender = true } = {}) {
     if (state.cliStatusLoading) return state.cliStatus;
@@ -766,11 +782,11 @@ Requirements:
     const connected = Boolean(engine?.authenticated);
     const attemptable = Boolean(engine?.available);
     $("#workspace-date").textContent = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(/* @__PURE__ */ new Date());
-    $("#profile-select").innerHTML = state.profiles.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === profile.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
-    $("#profile-summary").innerHTML = profileSummary(profile).map((item) => `<span class="summary-chip">${escapeHtml(item)}</span>`).join("");
+    $("#profile-select").innerHTML = html`${state.profiles.map((item) => html`<option value="${item.id}" ${item.id === profile.id ? "selected" : ""}>${item.name}</option>`)}`;
+    $("#profile-summary").innerHTML = html`${profileSummary(profile).map((item) => html`<span class="summary-chip">${item}</span>`)}`;
     const connection = $("#connection-status");
     connection.classList.toggle("is-connected", connected);
-    connection.innerHTML = `<span class="status-dot"></span>${connected ? escapeHtml(`${model.provider === "codex" ? "Codex" : "Claude"} CLI connected`) : !state.cliStatus ? "CLI server not checked" : attemptable ? "CLI login status unverified \u2014 runs will be attempted" : "Connection required"}`;
+    connection.innerHTML = html`<span class="status-dot"></span>${connected ? `${model.provider === "codex" ? "Codex" : "Claude"} CLI connected` : !state.cliStatus ? "CLI server not checked" : attemptable ? "CLI login status unverified \u2014 runs will be attempted" : "Connection required"}`;
     $$('input[name="run-depth"]').forEach((input) => {
       input.checked = input.value === state.run.depth;
     });
@@ -782,14 +798,14 @@ Requirements:
     $("#run-model").innerHTML = modelOptions(state.run.transport, state.run.modelId);
     $("#customize-panel").hidden = !state.customizeOpen;
     $('[data-action="toggle-customize"]').setAttribute("aria-expanded", String(state.customizeOpen));
-    $("#run-summary").innerHTML = join([
-      `<div><dt>Profile</dt><dd>${escapeHtml(profile.name)}</dd></div>`,
-      `<div><dt>Period</dt><dd>${escapeHtml(state.run.dateFrom === state.run.dateTo ? formatDate(state.run.dateFrom) : `${formatDate(state.run.dateFrom)}\u2013${formatDate(state.run.dateTo)}`)}</dd></div>`,
-      `<div><dt>Depth</dt><dd>${escapeHtml(DEPTHS[state.run.depth].name)}</dd></div>`,
-      `<div><dt>Method</dt><dd>${escapeHtml(TRANSPORTS[state.run.transport].name)}</dd></div>`,
-      `<div><dt>Model</dt><dd>${escapeHtml(model.name)}</dd></div>`,
-      `<div><dt>Coverage</dt><dd>${profile.topicIds.length} topics<br>${profile.watchlist.length + parseTickers(state.run.extraTickers).length} tickers</dd></div>`
-    ]);
+    $("#run-summary").innerHTML = html`${[
+      html`<div><dt>Profile</dt><dd>${profile.name}</dd></div>`,
+      html`<div><dt>Period</dt><dd>${state.run.dateFrom === state.run.dateTo ? formatDate(state.run.dateFrom) : `${formatDate(state.run.dateFrom)}\u2013${formatDate(state.run.dateTo)}`}</dd></div>`,
+      html`<div><dt>Depth</dt><dd>${DEPTHS[state.run.depth].name}</dd></div>`,
+      html`<div><dt>Method</dt><dd>${TRANSPORTS[state.run.transport].name}</dd></div>`,
+      html`<div><dt>Model</dt><dd>${model.name}</dd></div>`,
+      html`<div><dt>Coverage</dt><dd>${profile.topicIds.length} topics<br>${profile.watchlist.length + parseTickers(state.run.extraTickers).length} tickers</dd></div>`
+    ]}`;
     $("#cost-estimate").textContent = runCostText();
     const costNote = $("#cost-estimate").closest(".cost-note");
     costNote.querySelector("span").textContent = "Billing";
@@ -798,10 +814,10 @@ Requirements:
     renderResult(state.currentRecord);
   }
   function cliStatusMarkup() {
-    if (state.cliStatusLoading) return '<p class="subtle">Checking Codex and Claude subscription logins\u2026</p>';
-    if (!state.cliStatus) return '<p class="subtle">CLI status could not be loaded automatically. Select Recheck CLIs.</p>';
-    if (!state.cliStatus.engines?.length) return `<p class="subtle">${escapeHtml(state.cliStatus.message || "Local CLI server is offline.")}</p>`;
-    return `<div class="cli-status-grid">${state.cliStatus.engines.map((engine) => `<div class="cli-engine-row"><div><strong>${engine.id === "codex" ? "Codex CLI" : "Claude CLI"}</strong><small class="subtle">${escapeHtml(engine.available ? engine.authMethod : engine.installed ? "Installed \xB7 login required" : "Not installed")} \xB7 ${escapeHtml(engine.source || "DAI/PATH auto-detection")}</small><small class="cli-path">${escapeHtml(engine.path || "Executable not detected")}</small></div><span class="connection-pill ${engine.authenticated ? "is-connected" : ""}"><span class="status-dot"></span>${engine.authenticated ? "Ready" : engine.available ? "Unverified" : "Unavailable"}</span></div>`).join("")}</div>`;
+    if (state.cliStatusLoading) return html`<p class="subtle">Checking Codex and Claude subscription logins…</p>`;
+    if (!state.cliStatus) return html`<p class="subtle">CLI status could not be loaded automatically. Select Recheck CLIs.</p>`;
+    if (!state.cliStatus.engines?.length) return html`<p class="subtle">${state.cliStatus.message || "Local CLI server is offline."}</p>`;
+    return html`<div class="cli-status-grid">${state.cliStatus.engines.map((engine) => html`<div class="cli-engine-row"><div><strong>${engine.id === "codex" ? "Codex CLI" : "Claude CLI"}</strong><small class="subtle">${engine.available ? engine.authMethod : engine.installed ? "Installed \xB7 login required" : "Not installed"} · ${engine.source || "DAI/PATH auto-detection"}</small><small class="cli-path">${engine.path || "Executable not detected"}</small></div><span class="connection-pill ${engine.authenticated ? "is-connected" : ""}"><span class="status-dot"></span>${engine.authenticated ? "Ready" : engine.available ? "Unverified" : "Unavailable"}</span></div>`)}</div>`;
   }
   function renderOnboarding() {
     const host = $("#onboarding-host");
@@ -810,20 +826,20 @@ Requirements:
       return;
     }
     const step = state.onboardingStep;
-    const progress = `<div class="onboarding-steps" aria-label="Setup step ${step} of 4">${[1, 2, 3, 4].map((n) => `<span class="${n <= step ? "is-active" : ""}"></span>`).join("")}</div>`;
-    const exitSetup = '<button class="text-button" data-action="dismiss-onboarding">Open dashboard without setup</button>';
+    const progress = html`<div class="onboarding-steps" aria-label="Setup step ${step} of 4">${[1, 2, 3, 4].map((n) => html`<span class="${n <= step ? "is-active" : ""}"></span>`)}</div>`;
+    const exitSetup = html`<button class="text-button" data-action="dismiss-onboarding">Open dashboard without setup</button>`;
     let content = "";
-    if (step === 1) content = `<span class="eyebrow">Welcome</span><h2>Start with a useful briefing, not a wall of settings.</h2><p>Setup takes about a minute. You can change every choice later.</p><div class="onboarding-actions"><button class="primary-button" data-action="onboarding-next">Get started</button><button class="secondary-button" data-action="show-sample">Preview a sample first</button>${exitSetup}</div>`;
+    if (step === 1) content = html`<span class="eyebrow">Welcome</span><h2>Start with a useful briefing, not a wall of settings.</h2><p>Setup takes about a minute. You can change every choice later.</p><div class="onboarding-actions"><button class="primary-button" data-action="onboarding-next">Get started</button><button class="secondary-button" data-action="show-sample">Preview a sample first</button>${exitSetup}</div>`;
     if (step === 2) {
       state.onboardingTransport = "cli";
-      content = `<span class="eyebrow">Connection</span><h2>Connect your subscription CLI</h2><p>This application always uses an existing Codex or Claude subscription login.</p>${cliStatusMarkup()}<button class="secondary-button small" data-action="refresh-cli-status">Check subscription CLIs</button><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="onboarding-use-cli">Use subscription CLI</button><button class="text-button" data-action="onboarding-next">Skip this step</button>${exitSetup}</div>`;
+      content = html`<span class="eyebrow">Connection</span><h2>Connect your subscription CLI</h2><p>This application always uses an existing Codex or Claude subscription login.</p>${cliStatusMarkup()}<button class="secondary-button small" data-action="refresh-cli-status">Check subscription CLIs</button><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="onboarding-use-cli">Use subscription CLI</button><button class="text-button" data-action="onboarding-next">Skip this step</button>${exitSetup}</div>`;
     }
-    if (step === 3) content = `<span class="eyebrow">Starting point</span><h2>Choose a briefing profile</h2><p>A profile bundles topics, tickers, depth, and model choice.</p><label>Starting profile<select id="onboarding-profile">${state.profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} \u2014 ${escapeHtml(profile.description)}</option>`).join("")}</select></label><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="onboarding-next">Continue</button>${exitSetup}</div>`;
+    if (step === 3) content = html`<span class="eyebrow">Starting point</span><h2>Choose a briefing profile</h2><p>A profile bundles topics, tickers, depth, and model choice.</p><label>Starting profile<select id="onboarding-profile">${state.profiles.map((profile) => html`<option value="${profile.id}">${profile.name} — ${profile.description}</option>`)}</select></label><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="onboarding-next">Continue</button>${exitSetup}</div>`;
     if (step === 4) {
       state.onboardingWatchlist ||= [...activeProfile().watchlist];
-      content = `<span class="eyebrow">Watchlist</span><h2>Make it yours</h2><p>Add the stocks you need scanned every time. You can leave the defaults.</p><div class="field-group"><span class="field-label">Stocks to watch</span>${tickerEditorMarkup(state.onboardingWatchlist, "onboarding")}</div><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="finish-onboarding">Finish setup</button><button class="secondary-button" data-action="show-sample">Use a sample briefing</button>${exitSetup}</div>`;
+      content = html`<span class="eyebrow">Watchlist</span><h2>Make it yours</h2><p>Add the stocks you need scanned every time. You can leave the defaults.</p><div class="field-group"><span class="field-label">Stocks to watch</span>${tickerEditorMarkup(state.onboardingWatchlist, "onboarding")}</div><div class="onboarding-actions"><button class="secondary-button" data-action="onboarding-back">Back</button><button class="primary-button" data-action="finish-onboarding">Finish setup</button><button class="secondary-button" data-action="show-sample">Use a sample briefing</button>${exitSetup}</div>`;
     }
-    host.innerHTML = `<section class="onboarding surface"><div class="onboarding-grid"><div>${progress}${content}</div><div class="executive-pulse"><span class="eyebrow">What you get</span><h2>Evidence before confidence</h2><p>Each material claim is labeled, connected to sources when available, and saved for meaningful comparison later.</p></div></div></section>`;
+    host.innerHTML = html`<section class="onboarding surface"><div class="onboarding-grid"><div>${progress}${content}</div><div class="executive-pulse"><span class="eyebrow">What you get</span><h2>Evidence before confidence</h2><p>Each material claim is labeled, connected to sources when available, and saved for meaningful comparison later.</p></div></div></section>`;
   }
   function previousComparable(record) {
     if (!record) return null;
@@ -831,27 +847,27 @@ Requirements:
   }
   function sourceMarkup(sources = []) {
     const valid = sources.map((source) => ({ ...source, url: sanitizeUrl(source.url) })).filter((source) => source.url);
-    if (!valid.length) return '<span class="unsourced">No retrieved source attached</span>';
-    return `<div class="source-list">${valid.map((source, index) => `<a class="source-link" href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(source.citedText || "")}">${index + 1}. ${escapeHtml(source.title || new URL(source.url).hostname)}</a>`).join("")}</div>`;
+    if (!valid.length) return html`<span class="unsourced">No retrieved source attached</span>`;
+    return html`<div class="source-list">${valid.map((source, index) => html`<a class="source-link" href="${source.url}" target="_blank" rel="noopener noreferrer" title="${source.citedText || ""}">${index + 1}. ${source.title || new URL(source.url).hostname}</a>`)}</div>`;
   }
   function findingMarkup(finding, record) {
-    return `<article class="finding-card"><div class="finding-topline"><div><h3>${escapeHtml(finding.ticker ? `${finding.ticker}: ${finding.headline}` : finding.headline)}</h3><p>${escapeHtml(finding.summary)}</p></div><button class="secondary-button small" type="button" data-action="open-deep-dive" data-record-id="${escapeHtml(record.id)}" data-finding-id="${escapeHtml(finding.id)}">Deep dive</button></div>${finding.why_it_matters ? `<p class="why-it-matters"><strong>Why it matters:</strong> ${escapeHtml(finding.why_it_matters)}</p>` : ""}<div class="finding-meta"><span class="claim-chip ${escapeHtml(finding.claim_type)}">${escapeHtml(finding.claim_type)}</span><span class="confidence-chip">${escapeHtml(finding.confidence)} confidence</span><span class="meta-chip">${escapeHtml(finding.horizon)}</span></div>${sourceMarkup(finding.sources)}</article>`;
+    return html`<article class="finding-card"><div class="finding-topline"><div><h3>${finding.ticker ? `${finding.ticker}: ${finding.headline}` : finding.headline}</h3><p>${finding.summary}</p></div><button class="secondary-button small" type="button" data-action="open-deep-dive" data-record-id="${record.id}" data-finding-id="${finding.id}">Deep dive</button></div>${finding.why_it_matters ? html`<p class="why-it-matters"><strong>Why it matters:</strong> ${finding.why_it_matters}</p>` : ""}<div class="finding-meta"><span class="claim-chip ${finding.claim_type}">${finding.claim_type}</span><span class="confidence-chip">${finding.confidence} confidence</span><span class="meta-chip">${finding.horizon}</span></div>${sourceMarkup(finding.sources)}</article>`;
   }
   function comparisonSummaryMarkup(previous, record) {
     if (!previous?.briefing || !record?.briefing) return "";
     const changes = compareBriefings(previous, record);
-    const list = (items, mapper) => items.length ? `<ul>${items.slice(0, 5).map((item) => `<li>${escapeHtml(mapper(item))}</li>`).join("")}</ul>` : '<p class="subtle">None detected</p>';
-    return `<section class="change-summary surface"><div class="briefing-section-header"><div><span class="eyebrow">Compared with ${escapeHtml(formatDateTime(previous.generatedAt))}</span><h2>What changed</h2></div><button class="text-button" data-action="open-comparison" data-left="${escapeHtml(previous.id)}" data-right="${escapeHtml(record.id)}">Open full comparison</button></div><div class="change-columns"><div class="change-column"><h3>New</h3>${list(changes.new, (item) => item.headline)}</div><div class="change-column"><h3>Changed</h3>${list(changes.changed, (item) => `${item.before.headline} \u2192 ${item.after.headline}`)}</div><div class="change-column"><h3>No longer active</h3>${list(changes.resolved, (item) => item.headline)}</div></div></section>`;
+    const list = (items, mapper) => items.length ? html`<ul>${items.slice(0, 5).map((item) => html`<li>${mapper(item)}</li>`)}</ul>` : html`<p class="subtle">None detected</p>`;
+    return html`<section class="change-summary surface"><div class="briefing-section-header"><div><span class="eyebrow">Compared with ${formatDateTime(previous.generatedAt)}</span><h2>What changed</h2></div><button class="text-button" data-action="open-comparison" data-left="${previous.id}" data-right="${record.id}">Open full comparison</button></div><div class="change-columns"><div class="change-column"><h3>New</h3>${list(changes.new, (item) => item.headline)}</div><div class="change-column"><h3>Changed</h3>${list(changes.changed, (item) => `${item.before.headline} \u2192 ${item.after.headline}`)}</div><div class="change-column"><h3>No longer active</h3>${list(changes.resolved, (item) => item.headline)}</div></div></section>`;
   }
   function briefingMarkup(record, { compact = false } = {}) {
-    if (!record) return '<div class="empty-briefing"><h2>No briefing yet</h2><p>Generate a live briefing or preview the sample to see the evidence-aware layout.</p></div>';
+    if (!record) return html`<div class="empty-briefing"><h2>No briefing yet</h2><p>Generate a live briefing or preview the sample to see the evidence-aware layout.</p></div>`;
     const briefing = record.briefing || normalizeBriefing(record.rawResponse || "", { fallbackText: record.rawResponse || "", title: "Imported briefing" });
     record.briefing = briefing;
     const groups = Object.groupBy ? Object.groupBy(briefing.findings, (item) => item.section) : briefing.findings.reduce((map, item) => ((map[item.section] ||= []).push(item), map), {});
-    const sections = Object.entries(groups).map(([section, findings]) => `<section class="briefing-section surface"><div class="briefing-section-header"><h2>${escapeHtml(section)}</h2><button class="text-button" data-action="open-section-deep-dive" data-record-id="${escapeHtml(record.id)}" data-section="${escapeHtml(section)}">Deep dive on section</button></div><div class="finding-list">${findings.map((finding) => findingMarkup(finding, record)).join("")}</div></section>`).join("");
-    const catalysts = briefing.catalysts.length ? `<section class="briefing-section surface"><div class="briefing-section-header"><h2>Catalyst calendar</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Event</th><th>Expectation</th><th>Potential impact</th></tr></thead><tbody>${briefing.catalysts.map((item) => `<tr><td>${escapeHtml(item.date)}</td><td>${escapeHtml(item.event)}${sourceMarkup(item.sources)}</td><td>${escapeHtml(item.expectation)}</td><td>${escapeHtml(item.impact)}</td></tr>`).join("")}</tbody></table></div></section>` : "";
-    const watchlist = briefing.watchlist.length ? `<section class="briefing-section surface"><div class="briefing-section-header"><h2>Watchlist scan</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Ticker</th><th>Catalyst</th><th>Potential impact</th><th>Next date</th></tr></thead><tbody>${briefing.watchlist.map((item) => `<tr><td><strong>${escapeHtml(item.ticker)}</strong></td><td>${escapeHtml(item.catalyst)}${sourceMarkup(item.sources)}</td><td>${escapeHtml(item.potential_impact)}</td><td>${escapeHtml(item.next_date)}</td></tr>`).join("")}</tbody></table></div></section>` : "";
-    return `<div class="result-shell"><section class="result-hero surface"><div class="result-header"><div><span class="eyebrow">${record.kind === "deep-dive" ? "Contextual deep dive" : "Latest briefing"}</span><h1>${escapeHtml(briefing.title)}</h1><div class="result-meta"><span class="meta-chip">${escapeHtml(record.profileName)}</span><span class="meta-chip">${escapeHtml(modelFor(record.modelId).name)}</span><span class="meta-chip">${escapeHtml(formatDateTime(record.generatedAt))}</span><span class="meta-chip">${record.citations?.length || 0} sources</span></div></div>${compact ? "" : `<div class="result-actions"><button class="secondary-button small" data-action="copy-briefing" data-record-id="${escapeHtml(record.id)}">Copy</button><button class="secondary-button small" data-action="export-briefing" data-record-id="${escapeHtml(record.id)}">Export HTML</button><button class="secondary-button small" data-action="print">Print</button><button class="secondary-button small" data-action="regenerate" data-record-id="${escapeHtml(record.id)}">Regenerate</button></div>`}</div><div class="pulse-grid"><div class="executive-pulse"><h2>Executive pulse</h2><p>${escapeHtml(briefing.executive_summary)}</p></div><div class="stance-card"><span class="eyebrow">Overall stance</span><strong>${escapeHtml(briefing.stance)}</strong></div></div></section>${compact ? "" : comparisonSummaryMarkup(previousComparable(record), record)}${sections}${catalysts}${watchlist}</div>`;
+    const sections = Object.entries(groups).map(([section, findings]) => html`<section class="briefing-section surface"><div class="briefing-section-header"><h2>${section}</h2><button class="text-button" data-action="open-section-deep-dive" data-record-id="${record.id}" data-section="${section}">Deep dive on section</button></div><div class="finding-list">${findings.map((finding) => findingMarkup(finding, record))}</div></section>`);
+    const catalysts = briefing.catalysts.length ? html`<section class="briefing-section surface"><div class="briefing-section-header"><h2>Catalyst calendar</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Event</th><th>Expectation</th><th>Potential impact</th></tr></thead><tbody>${briefing.catalysts.map((item) => html`<tr><td>${item.date}</td><td>${item.event}${sourceMarkup(item.sources)}</td><td>${item.expectation}</td><td>${item.impact}</td></tr>`)}</tbody></table></div></section>` : "";
+    const watchlist = briefing.watchlist.length ? html`<section class="briefing-section surface"><div class="briefing-section-header"><h2>Watchlist scan</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Ticker</th><th>Catalyst</th><th>Potential impact</th><th>Next date</th></tr></thead><tbody>${briefing.watchlist.map((item) => html`<tr><td><strong>${item.ticker}</strong></td><td>${item.catalyst}${sourceMarkup(item.sources)}</td><td>${item.potential_impact}</td><td>${item.next_date}</td></tr>`)}</tbody></table></div></section>` : "";
+    return html`<div class="result-shell"><section class="result-hero surface"><div class="result-header"><div><span class="eyebrow">${record.kind === "deep-dive" ? "Contextual deep dive" : "Latest briefing"}</span><h1>${briefing.title}</h1><div class="result-meta"><span class="meta-chip">${record.profileName}</span><span class="meta-chip">${modelFor(record.modelId).name}</span><span class="meta-chip">${formatDateTime(record.generatedAt)}</span><span class="meta-chip">${record.citations?.length || 0} sources</span></div></div>${compact ? "" : html`<div class="result-actions"><button class="secondary-button small" data-action="copy-briefing" data-record-id="${record.id}">Copy</button><button class="secondary-button small" data-action="export-briefing" data-record-id="${record.id}">Export HTML</button><button class="secondary-button small" data-action="print">Print</button><button class="secondary-button small" data-action="regenerate" data-record-id="${record.id}">Regenerate</button></div>`}</div><div class="pulse-grid"><div class="executive-pulse"><h2>Executive pulse</h2><p>${briefing.executive_summary}</p></div><div class="stance-card"><span class="eyebrow">Overall stance</span><strong>${briefing.stance}</strong></div></div></section>${compact ? "" : comparisonSummaryMarkup(previousComparable(record), record)}${sections}${catalysts}${watchlist}</div>`;
   }
   function renderResult(record) {
     $("#briefing-result").innerHTML = briefingMarkup(record);
@@ -912,7 +928,7 @@ Requirements:
   }
   function renderHistory() {
     state.history = store.getHistory();
-    $("#history-profile-filter").innerHTML = `<option value="">All profiles</option>${state.profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)}</option>`).join("")}`;
+    $("#history-profile-filter").innerHTML = html`<option value="">All profiles</option>${state.profiles.map((profile) => html`<option value="${profile.id}">${profile.name}</option>`)}`;
     renderHistoryList();
     renderHistoryDetail(state.currentRecord || state.history[0]);
   }
@@ -920,7 +936,7 @@ Requirements:
     const query = $("#history-search")?.value.trim().toLowerCase() || "";
     const profileId = $("#history-profile-filter")?.value || "";
     const records = state.history.filter((record) => (!query || historySearchText(record).includes(query)) && (!profileId || record.profileId === profileId));
-    $("#history-list").innerHTML = records.length ? records.map((record) => `<article class="history-row ${state.currentRecord?.id === record.id ? "is-selected" : ""}"><label class="visually-hidden" for="compare-${escapeHtml(record.id)}">Select ${escapeHtml(record.briefing?.title || record.profileName)} for comparison</label><input id="compare-${escapeHtml(record.id)}" type="checkbox" data-history-compare="${escapeHtml(record.id)}" ${state.compareIds.includes(record.id) ? "checked" : ""}><button class="text-button history-row-main" type="button" data-action="open-history" data-record-id="${escapeHtml(record.id)}"><strong>${record.kind === "deep-dive" ? "Deep dive \xB7 " : ""}${escapeHtml(record.briefing?.title || record.profileName || "Imported briefing")}</strong><small>${escapeHtml(record.briefing?.executive_summary || "Legacy briefing \u2014 open to view")}</small></button><span class="history-row-time">${escapeHtml(formatDateTime(record.generatedAt))}</span></article>`).join("") : '<div class="empty-briefing"><h2>No matching history</h2><p>Try another search or generate a briefing.</p></div>';
+    $("#history-list").innerHTML = records.length ? html`${records.map((record) => html`<article class="history-row ${state.currentRecord?.id === record.id ? "is-selected" : ""}"><label class="visually-hidden" for="compare-${record.id}">Select ${record.briefing?.title || record.profileName} for comparison</label><input id="compare-${record.id}" type="checkbox" data-history-compare="${record.id}" ${state.compareIds.includes(record.id) ? "checked" : ""}><button class="text-button history-row-main" type="button" data-action="open-history" data-record-id="${record.id}"><strong>${record.kind === "deep-dive" ? "Deep dive \xB7 " : ""}${record.briefing?.title || record.profileName || "Imported briefing"}</strong><small>${record.briefing?.executive_summary || "Legacy briefing \u2014 open to view"}</small></button><span class="history-row-time">${formatDateTime(record.generatedAt)}</span></article>`)}` : '<div class="empty-briefing"><h2>No matching history</h2><p>Try another search or generate a briefing.</p></div>';
     $("#compare-count").textContent = state.compareIds.length;
     $("#compare-button").disabled = state.compareIds.length !== 2;
   }
@@ -936,8 +952,8 @@ Requirements:
   }
   function comparisonMarkup(left, right) {
     const diff = compareBriefings(left, right);
-    const group = (title, values, mapper) => `<section class="comparison-group"><h3>${escapeHtml(title)} <span class="meta-chip">${values.length}</span></h3>${values.length ? `<ul>${values.map((value) => `<li>${mapper(value)}</li>`).join("")}</ul>` : '<p class="subtle">None detected</p>'}</section>`;
-    return `<div><p class="subtle">${escapeHtml(formatDateTime(left.generatedAt))} \u2192 ${escapeHtml(formatDateTime(right.generatedAt))}</p><div class="comparison-grid">${group("New", diff.new, (item) => escapeHtml(item.headline))}${group("Changed", diff.changed, (item) => `<strong>${escapeHtml(item.after.headline)}</strong><br><span class="subtle">Before: ${escapeHtml(item.before.summary)}</span><br>Now: ${escapeHtml(item.after.summary)}`)}${group("No longer active", diff.resolved, (item) => escapeHtml(item.headline))}${group("Unchanged", diff.unchanged, (item) => escapeHtml(item.headline))}</div></div>`;
+    const group = (title, values, mapper) => html`<section class="comparison-group"><h3>${title} <span class="meta-chip">${values.length}</span></h3>${values.length ? html`<ul>${values.map((value) => html`<li>${mapper(value)}</li>`)}</ul>` : html`<p class="subtle">None detected</p>`}</section>`;
+    return html`<div><p class="subtle">${formatDateTime(left.generatedAt)} → ${formatDateTime(right.generatedAt)}</p><div class="comparison-grid">${group("New", diff.new, (item) => item.headline)}${group("Changed", diff.changed, (item) => html`<strong>${item.after.headline}</strong><br><span class="subtle">Before: ${item.before.summary}</span><br>Now: ${item.after.summary}`)}${group("No longer active", diff.resolved, (item) => item.headline)}${group("Unchanged", diff.unchanged, (item) => item.headline)}</div></div>`;
   }
   function openDialog(title, content, eyebrow = "") {
     $("#dialog-title").textContent = title;
@@ -955,7 +971,7 @@ Requirements:
     const contextTitle = section || findings[0]?.headline || record.briefing.title;
     const context = findings.map((item) => `${item.headline}: ${item.summary}
 Why it matters: ${item.why_it_matters}`).join("\n\n");
-    openDialog("Deep dive", `<div class="deep-dive-context"><strong>${escapeHtml(contextTitle)}</strong><p>${escapeHtml(context)}</p></div><div class="form-grid two-column"><label>Model<select id="deep-dive-model">${modelsForRun().map((model) => `<option value="${escapeHtml(model.id)}" ${model.id === state.run.modelId ? "selected" : ""}>${escapeHtml(model.name)}</option>`).join("")}</select></label><label>Analysis style<select id="deep-dive-style"><option value="evidence">Evidence review</option><option value="bull-bear">Bull vs bear</option><option value="scenario">Scenario analysis</option><option value="contrarian">Challenge the conclusion</option></select></label></div><label>Question or focus<textarea id="deep-dive-question" rows="4">Explain the evidence, strongest counterargument, key uncertainty, and the next observable signal that would confirm or invalidate this conclusion.</textarea></label><div class="onboarding-actions"><button class="primary-button" data-action="run-deep-dive" data-record-id="${escapeHtml(record.id)}" data-context="${escapeHtml(context)}">Run deep dive</button><button class="secondary-button" data-action="close-dialog">Cancel</button></div>`, contextTitle);
+    openDialog("Deep dive", html`<div class="deep-dive-context"><strong>${contextTitle}</strong><p>${context}</p></div><div class="form-grid two-column"><label>Model<select id="deep-dive-model">${modelsForRun().map((model) => html`<option value="${model.id}" ${model.id === state.run.modelId ? "selected" : ""}>${model.name}</option>`)}</select></label><label>Analysis style<select id="deep-dive-style"><option value="evidence">Evidence review</option><option value="bull-bear">Bull vs bear</option><option value="scenario">Scenario analysis</option><option value="contrarian">Challenge the conclusion</option></select></label></div><label>Question or focus<textarea id="deep-dive-question" rows="4">Explain the evidence, strongest counterargument, key uncertainty, and the next observable signal that would confirm or invalidate this conclusion.</textarea></label><div class="onboarding-actions"><button class="primary-button" data-action="run-deep-dive" data-record-id="${record.id}" data-context="${context}">Run deep dive</button><button class="secondary-button" data-action="close-dialog">Cancel</button></div>`, contextTitle);
   }
   function ensureSettingsDrafts() {
     if (!state.settingsDraft) state.settingsDraft = clone(state.settings);
@@ -981,9 +997,9 @@ Why it matters: ${item.why_it_matters}`).join("\n\n");
   }
   function tickerEditorMarkup(tickers = [], scope = "profile") {
     const prefix = scope === "onboarding" ? "onboarding-watchlist" : "profile-watchlist";
-    return `<div class="ticker-editor">
-    <input id="${prefix}" type="hidden" value="${escapeHtml(tickers.join(", "))}">
-    <div class="ticker-chip-list" aria-label="Stocks currently on this watchlist">${tickers.length ? tickers.map((ticker) => `<span class="ticker-chip"><span>${escapeHtml(ticker)}</span><button type="button" data-action="remove-${scope}-ticker" data-ticker="${escapeHtml(ticker)}" aria-label="Remove ${escapeHtml(ticker)} from watchlist">\xD7</button></span>`).join("") : '<span class="subtle">No stocks added yet.</span>'}</div>
+    return html`<div class="ticker-editor">
+    <input id="${prefix}" type="hidden" value="${tickers.join(", ")}">
+    <div class="ticker-chip-list" aria-label="Stocks currently on this watchlist">${tickers.length ? tickers.map((ticker) => html`<span class="ticker-chip"><span>${ticker}</span><button type="button" data-action="remove-${scope}-ticker" data-ticker="${ticker}" aria-label="Remove ${ticker} from watchlist">×</button></span>`) : html`<span class="subtle">No stocks added yet.</span>`}</div>
     <div class="ticker-add-row"><label for="${prefix}-add"><span>Add a stock</span><input id="${prefix}-add" autocomplete="off" autocapitalize="characters" placeholder="Enter a ticker, such as AAPL"></label><button class="secondary-button" type="button" data-action="add-${scope}-ticker">Add stock</button></div>
     <small class="field-help">Add one ticker at a time, or paste several separated by commas.</small>
   </div>`;
@@ -1007,42 +1023,42 @@ Why it matters: ${item.why_it_matters}`).join("\n\n");
     const categories = [...new Set(TOPICS.map((topic) => topic.category))];
     const cliModels = availableModelsForTransport("cli");
     const cliModelId = cliModels.some((model) => model.id === profile.cliModelId) ? profile.cliModelId : cliModels[0].id;
-    const modelControl = `<article class="mode-setting-card is-local"><span class="scope-chip local">Subscription CLI</span><h3>CLI model</h3><p>Uses the authenticated Codex or Claude subscription.</p><label>Subscription model<select id="profile-cli-model">${modelOptions("cli", cliModelId)}</select></label></article>`;
+    const modelControl = html`<article class="mode-setting-card is-local"><span class="scope-chip local">Subscription CLI</span><h3>CLI model</h3><p>Uses the authenticated Codex or Claude subscription.</p><label>Subscription model<select id="profile-cli-model">${modelOptions("cli", cliModelId)}</select></label></article>`;
     const profileModeSummary = (item) => `Subscription model: ${modelFor(item.cliModelId).name}`;
-    return `<section class="settings-section">
+    return html`<section class="settings-section">
     <div class="section-heading"><div><h2>Briefing profiles</h2><p>This Local version uses subscription CLIs only.</p></div><button class="secondary-button small" data-action="add-profile">Add profile</button></div>
-    <div class="profile-editor-list">${profiles.map((item) => `<button type="button" class="profile-editor-card text-button ${item.id === profile.id ? "is-active" : ""}" data-action="edit-profile" data-profile-id="${escapeHtml(item.id)}"><span class="profile-title-row"><strong>${escapeHtml(item.name)}</strong>${item.id === state.settingsDraft.activeProfileId ? '<span class="meta-chip">Default</span>' : ""}</span><span class="subtle">${escapeHtml(item.description)} \xB7 ${escapeHtml(profileModeSummary(item))}</span></button>`).join("")}</div>
+    <div class="profile-editor-list">${profiles.map((item) => html`<button type="button" class="profile-editor-card text-button ${item.id === profile.id ? "is-active" : ""}" data-action="edit-profile" data-profile-id="${item.id}"><span class="profile-title-row"><strong>${item.name}</strong>${item.id === state.settingsDraft.activeProfileId ? html`<span class="meta-chip">Default</span>` : ""}</span><span class="subtle">${item.description} · ${profileModeSummary(item)}</span></button>`)}</div>
   </section><section class="settings-section">
-    <div class="section-heading"><div><span class="scope-chip shared">Common profile fields</span><h2>Edit ${escapeHtml(profile.name)}</h2><p>${profile.id === state.settingsDraft.activeProfileId ? "This is the default Dashboard profile." : "Changes apply after Save changes."}</p></div><div class="button-cluster">${profile.id !== state.settingsDraft.activeProfileId ? `<button class="secondary-button small" data-action="make-default-profile" data-profile-id="${escapeHtml(profile.id)}">Make default</button>` : '<span class="meta-chip">Default profile</span>'}<button class="secondary-button small" data-action="duplicate-profile" data-profile-id="${escapeHtml(profile.id)}">Duplicate</button>${profiles.length > 1 ? `<button class="danger-button small" data-action="delete-profile" data-profile-id="${escapeHtml(profile.id)}">Delete</button>` : ""}</div></div>
+    <div class="section-heading"><div><span class="scope-chip shared">Common profile fields</span><h2>Edit ${profile.name}</h2><p>${profile.id === state.settingsDraft.activeProfileId ? "This is the default Dashboard profile." : "Changes apply after Save changes."}</p></div><div class="button-cluster">${profile.id !== state.settingsDraft.activeProfileId ? html`<button class="secondary-button small" data-action="make-default-profile" data-profile-id="${profile.id}">Make default</button>` : html`<span class="meta-chip">Default profile</span>`}<button class="secondary-button small" data-action="duplicate-profile" data-profile-id="${profile.id}">Duplicate</button>${profiles.length > 1 ? html`<button class="danger-button small" data-action="delete-profile" data-profile-id="${profile.id}">Delete</button>` : ""}</div></div>
     <div class="form-grid two-column">
-      <label>Name<input id="profile-name" value="${escapeHtml(profile.name)}"></label>
-      <label>Description<input id="profile-description" value="${escapeHtml(profile.description)}"></label>
-      <label>Default depth<select id="profile-depth">${Object.entries(DEPTHS).map(([id, item]) => `<option value="${id}" ${id === profile.depth ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select></label>
+      <label>Name<input id="profile-name" value="${profile.name}"></label>
+      <label>Description<input id="profile-description" value="${profile.description}"></label>
+      <label>Default depth<select id="profile-depth">${Object.entries(DEPTHS).map(([id, item]) => html`<option value="${id}" ${id === profile.depth ? "selected" : ""}>${item.name}</option>`)}</select></label>
     </div>
     <div class="field-group"><span class="field-label">Stocks to watch</span>${tickerEditorMarkup(profile.watchlist)}</div>
-    <label>Standing instructions<textarea id="profile-instructions" rows="4">${escapeHtml(profile.instructions)}</textarea></label>
-    <h3>Topics</h3>${categories.map((category) => `<p class="eyebrow">${escapeHtml(category)}</p><div class="option-grid">${TOPICS.filter((topic) => topic.category === category).map((topic) => `<label class="option-card"><input type="checkbox" name="profile-topic" value="${escapeHtml(topic.id)}" ${profile.topicIds.includes(topic.id) ? "checked" : ""}><span><strong>${escapeHtml(topic.name)}</strong><small class="subtle">${escapeHtml(topic.hint)}</small></span></label>`).join("")}</div>`).join("")}
-    <h3>Watchlist coverage</h3><div class="option-grid">${COVERAGE_TYPES.map((item) => `<label class="option-card"><input type="checkbox" name="profile-coverage" value="${escapeHtml(item.id)}" ${profile.coverageIds.includes(item.id) ? "checked" : ""}><span><strong>${escapeHtml(item.name)}</strong><small class="subtle">${escapeHtml(item.prompt)}</small></span></label>`).join("")}</div>
+    <label>Standing instructions<textarea id="profile-instructions" rows="4">${profile.instructions}</textarea></label>
+    <h3>Topics</h3>${categories.map((category) => html`<p class="eyebrow">${category}</p><div class="option-grid">${TOPICS.filter((topic) => topic.category === category).map((topic) => html`<label class="option-card"><input type="checkbox" name="profile-topic" value="${topic.id}" ${profile.topicIds.includes(topic.id) ? "checked" : ""}><span><strong>${topic.name}</strong><small class="subtle">${topic.hint}</small></span></label>`)}</div>`)}
+    <h3>Watchlist coverage</h3><div class="option-grid">${COVERAGE_TYPES.map((item) => html`<label class="option-card"><input type="checkbox" name="profile-coverage" value="${item.id}" ${profile.coverageIds.includes(item.id) ? "checked" : ""}><span><strong>${item.name}</strong><small class="subtle">${item.prompt}</small></span></label>`)}</div>
     <div class="mode-settings-grid">${modelControl}</div>
   </section>`;
   }
   function settingsConnectionsMarkupV3() {
     const detected = (engine) => cliEngineStatus(engine)?.path || "";
-    return `<section class="settings-section"><div class="section-heading"><div><span class="scope-chip local">Local subscription only</span><h2>Codex and Claude connections</h2><p>Local checks the same CLI commands DAI uses: DAI command overrides first, then Windows PATH. No path setup is required when a CLI is detected.</p></div><button class="secondary-button small" data-action="refresh-cli-status">Recheck CLIs</button></div>
+    return html`<section class="settings-section"><div class="section-heading"><div><span class="scope-chip local">Local subscription only</span><h2>Codex and Claude connections</h2><p>Local checks the same CLI commands DAI uses: DAI command overrides first, then Windows PATH. No path setup is required when a CLI is detected.</p></div><button class="secondary-button small" data-action="refresh-cli-status">Recheck CLIs</button></div>
     ${cliStatusMarkup()}
-    <details class="advanced-disclosure cli-path-settings"><summary>Advanced path override (normally unnecessary)</summary><div class="advanced-body"><label>Codex executable<input id="cli-codex-path" value="${escapeHtml(state.cliConfig.codexPath || detected("codex"))}" placeholder="${escapeHtml(detected("codex") || "Example: C:\\Users\\you\\AppData\\Roaming\\npm\\codex.cmd")}"><small class="field-help">The detected DAI/PATH value is shown. Edit only to force a different codex executable.</small></label><label>Claude executable<input id="cli-claude-path" value="${escapeHtml(state.cliConfig.claudePath || detected("claude"))}" placeholder="${escapeHtml(detected("claude") || "Example: C:\\Users\\you\\.local\\bin\\claude.exe")}"><small class="field-help">The detected DAI/PATH value is shown. Edit only to force a different claude executable.</small></label><button class="secondary-button" data-action="save-cli-paths">Save path overrides</button></div></details>
+    <details class="advanced-disclosure cli-path-settings"><summary>Advanced path override (normally unnecessary)</summary><div class="advanced-body"><label>Codex executable<input id="cli-codex-path" value="${state.cliConfig.codexPath || detected("codex")}" placeholder="${detected("codex") || "Example: C:\\Users\\you\\AppData\\Roaming\\npm\\codex.cmd"}"><small class="field-help">The detected DAI/PATH value is shown. Edit only to force a different codex executable.</small></label><label>Claude executable<input id="cli-claude-path" value="${state.cliConfig.claudePath || detected("claude")}" placeholder="${detected("claude") || "Example: C:\\Users\\you\\.local\\bin\\claude.exe"}"><small class="field-help">The detected DAI/PATH value is shown. Edit only to force a different claude executable.</small></label><button class="secondary-button" data-action="save-cli-paths">Save path overrides</button></div></details>
     <p class="field-help">CLI prompts run in an isolated temporary workspace that is deleted after each run. Codex may write only inside that workspace; Claude is limited to web research tools.</p>
   </section>`;
   }
   function settingsAppearanceMarkup() {
-    return `<section class="settings-section"><span class="scope-chip shared">Application setting</span><h2>Appearance</h2><p class="subtle">Dark remains the default. Light and the original maize-and-blue theme are still available.</p><div class="theme-grid">${[["dark", "Dark"], ["light", "Light"], ["umich", "Go Blue!"]].map(([id, name]) => `<label class="theme-card"><input type="radio" name="settings-theme" value="${id}" ${state.settingsDraft.theme === id ? "checked" : ""}><span>${escapeHtml(name)}</span></label>`).join("")}</div></section>`;
+    return html`<section class="settings-section"><span class="scope-chip shared">Application setting</span><h2>Appearance</h2><p class="subtle">Dark remains the default. Light and the original maize-and-blue theme are still available.</p><div class="theme-grid">${[["dark", "Dark"], ["light", "Light"], ["umich", "Go Blue!"]].map(([id, name]) => html`<label class="theme-card"><input type="radio" name="settings-theme" value="${id}" ${state.settingsDraft.theme === id ? "checked" : ""}><span>${name}</span></label>`)}</div></section>`;
   }
   function settingsDataMarkup() {
-    return `<section class="settings-section"><span class="scope-chip shared">Application data</span><h2>Data & privacy</h2><p class="subtle">History includes prompts, responses, and retrieved source URLs. CLI credentials remain owned by the installed CLI.</p><div class="button-cluster"><button class="secondary-button" data-action="export-config">Export configuration</button><button class="secondary-button" data-action="export-history">Export history</button><button class="primary-button" data-action="export-full">Export full backup</button><button class="secondary-button" data-action="import-backup">Import backup</button></div></section><section class="settings-section"><span class="scope-chip shared">Application data</span><h2>Storage</h2><p>${state.history.length} saved analyses on this device.</p><div class="danger-zone"><div class="button-cluster"><button class="danger-button" data-action="clear-history">Clear history</button><button class="danger-button" data-action="reset-app">Reset entire application</button></div></div></section>`;
+    return html`<section class="settings-section"><span class="scope-chip shared">Application data</span><h2>Data & privacy</h2><p class="subtle">History includes prompts, responses, and retrieved source URLs. CLI credentials remain owned by the installed CLI.</p><div class="button-cluster"><button class="secondary-button" data-action="export-config">Export configuration</button><button class="secondary-button" data-action="export-history">Export history</button><button class="primary-button" data-action="export-full">Export full backup</button><button class="secondary-button" data-action="import-backup">Import backup</button></div></section><section class="settings-section"><span class="scope-chip shared">Application data</span><h2>Storage</h2><p>${state.history.length} saved analyses on this device.</p><div class="danger-zone"><div class="button-cluster"><button class="danger-button" data-action="clear-history">Clear history</button><button class="danger-button" data-action="reset-app">Reset entire application</button></div></div></section>`;
   }
   function settingsExpertMarkup() {
-    const localControls = `<section class="settings-section"><span class="scope-chip local">Local subscription only</span><h2>CLI administration</h2><p class="subtle">These protections apply to Codex and Claude subscription runs.</p><div class="admin-fact-grid"><div><strong>Codex workspace</strong><span>Isolated temporary folder, deleted after each run</span></div><div><strong>Claude tools</strong><span>WebSearch and WebFetch only</span></div><div><strong>Prompt transport</strong><span>stdin; no shell command input</span></div><div><strong>Credentials</strong><span>Owned by the installed CLI</span></div></div><p class="field-help">Executable selection and authentication status are managed under Connections.</p></section>`;
-    return `<section class="settings-section"><span class="scope-chip shared">All subscription runs</span><h2>Analysis instructions</h2><p class="subtle">This system prompt applies to every run in this application.</p><label>System prompt<textarea id="expert-system-prompt" rows="10" class="code-input">${escapeHtml(state.settingsDraft.expert.systemPrompt)}</textarea></label></section>${localControls}`;
+    const localControls = html`<section class="settings-section"><span class="scope-chip local">Local subscription only</span><h2>CLI administration</h2><p class="subtle">These protections apply to Codex and Claude subscription runs.</p><div class="admin-fact-grid"><div><strong>Codex workspace</strong><span>Isolated temporary folder, deleted after each run</span></div><div><strong>Claude tools</strong><span>WebSearch and WebFetch only</span></div><div><strong>Prompt transport</strong><span>stdin; no shell command input</span></div><div><strong>Credentials</strong><span>Owned by the installed CLI</span></div></div><p class="field-help">Executable selection and authentication status are managed under Connections.</p></section>`;
+    return html`<section class="settings-section"><span class="scope-chip shared">All subscription runs</span><h2>Analysis instructions</h2><p class="subtle">This system prompt applies to every run in this application.</p><label>System prompt<textarea id="expert-system-prompt" rows="10" class="code-input">${state.settingsDraft.expert.systemPrompt}</textarea></label></section>${localControls}`;
   }
   function renderSettings() {
     ensureSettingsDrafts();
@@ -1090,9 +1106,9 @@ Why it matters: ${item.why_it_matters}`).join("\n\n");
   }
   function exportRecordHtml(record) {
     const briefing = record.briefing;
-    const sources = (list) => list?.length ? `<ul class="sources">${list.map((source) => `<li><a href="${escapeHtml(sanitizeUrl(source.url))}">${escapeHtml(source.title || source.url)}</a></li>`).join("")}</ul>` : '<p class="unsourced">No retrieved source attached</p>';
-    const sections = Object.entries(briefing.findings.reduce((map, item) => ((map[item.section] ||= []).push(item), map), {})).map(([name, findings]) => `<section><h2>${escapeHtml(name)}</h2>${findings.map((item) => `<article><h3>${escapeHtml(item.ticker ? `${item.ticker}: ${item.headline}` : item.headline)}</h3><p>${escapeHtml(item.summary)}</p><p><strong>Why it matters:</strong> ${escapeHtml(item.why_it_matters)}</p><p class="meta">${escapeHtml(item.claim_type)} \xB7 ${escapeHtml(item.confidence)} confidence \xB7 ${escapeHtml(item.horizon)}</p>${sources(item.sources)}</article>`).join("")}</section>`).join("");
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(briefing.title)}</title><style>body{max-width:840px;margin:0 auto;padding:32px 20px;color:#14202b;font:16px/1.6 system-ui,sans-serif}h1{line-height:1.15}h2{margin-top:32px;border-bottom:2px solid #d9e0e6;padding-bottom:6px}article{margin:16px 0;padding:18px;border:1px solid #d9e0e6;border-radius:12px;background:#f7f9fb}.meta{color:#536270;font-size:13px}.sources{font-size:13px}.unsourced{color:#a52727;font-size:13px}header{padding:22px;border-radius:14px;background:#dff3ee}.stance{font-weight:700}</style></head><body><header><h1>${escapeHtml(briefing.title)}</h1><p>${escapeHtml(briefing.executive_summary)}</p><p class="stance">Overall stance: ${escapeHtml(briefing.stance)}</p><p class="meta">${escapeHtml(record.profileName)} \xB7 ${escapeHtml(modelFor(record.modelId).name)} \xB7 ${escapeHtml(formatDateTime(record.generatedAt))}</p></header>${sections}</body></html>`;
+    const sources = (list) => list?.length ? html`<ul class="sources">${list.map((source) => html`<li><a href="${sanitizeUrl(source.url)}">${source.title || source.url}</a></li>`)}</ul>` : html`<p class="unsourced">No retrieved source attached</p>`;
+    const sections = Object.entries(briefing.findings.reduce((map, item) => ((map[item.section] ||= []).push(item), map), {})).map(([name, findings]) => html`<section><h2>${name}</h2>${findings.map((item) => html`<article><h3>${item.ticker ? `${item.ticker}: ${item.headline}` : item.headline}</h3><p>${item.summary}</p><p><strong>Why it matters:</strong> ${item.why_it_matters}</p><p class="meta">${item.claim_type} · ${item.confidence} confidence · ${item.horizon}</p>${sources(item.sources)}</article>`)}</section>`);
+    return String(html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${briefing.title}</title><style>body{max-width:840px;margin:0 auto;padding:32px 20px;color:#14202b;font:16px/1.6 system-ui,sans-serif}h1{line-height:1.15}h2{margin-top:32px;border-bottom:2px solid #d9e0e6;padding-bottom:6px}article{margin:16px 0;padding:18px;border:1px solid #d9e0e6;border-radius:12px;background:#f7f9fb}.meta{color:#536270;font-size:13px}.sources{font-size:13px}.unsourced{color:#a52727;font-size:13px}header{padding:22px;border-radius:14px;background:#dff3ee}.stance{font-weight:700}</style></head><body><header><h1>${briefing.title}</h1><p>${briefing.executive_summary}</p><p class="stance">Overall stance: ${briefing.stance}</p><p class="meta">${record.profileName} · ${modelFor(record.modelId).name} · ${formatDateTime(record.generatedAt)}</p></header>${sections}</body></html>`);
   }
   function fileUpload(callback) {
     const input = document.createElement("input");
