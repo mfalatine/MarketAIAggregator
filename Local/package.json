@@ -1,0 +1,18 @@
+{
+  "name": "market-ai-aggregator-local",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild app.js --bundle --format=iife --platform=browser --target=chrome100 --outfile=app.bundle.js",
+    "predev": "pnpm build",
+    "dev": "node scripts/dev-server.mjs",
+    "cli:status": "node scripts/cli-status.mjs",
+    "test": "node --test",
+    "check": "pnpm build && node scripts/check-project.mjs && node --test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "jsdom": "^26.1.0"
+  }
+}

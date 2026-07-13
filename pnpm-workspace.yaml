@@ -1,0 +1,8 @@
+packages:
+  - Local
+  - Netlify
+
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

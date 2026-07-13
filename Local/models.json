@@ -1,0 +1,65 @@
+{
+  "_doc": "Verbatim Local copy of DAI/models.json. The parity test fails if DAI changes so Local cannot silently invent or drift model names, kinds, or CLI model IDs.",
+  "models": [
+    {
+      "key": "codex",
+      "label": "Codex GPT-5.5",
+      "kind": "codex",
+      "model_id": "gpt-5.5"
+    },
+    {
+      "key": "codex-sol",
+      "label": "Codex Sol 5.6",
+      "kind": "codex",
+      "model_id": "gpt-5.6-sol"
+    },
+    {
+      "key": "codex-terra",
+      "label": "Codex Terra 5.6",
+      "kind": "codex",
+      "model_id": "gpt-5.6-terra"
+    },
+    {
+      "key": "codex-luna",
+      "label": "Codex Luna 5.6",
+      "kind": "codex",
+      "model_id": "gpt-5.6-luna"
+    },
+    {
+      "key": "codex-spark",
+      "label": "Codex Spark 5.3",
+      "kind": "codex",
+      "model_id": "gpt-5.3-codex-spark"
+    },
+    {
+      "key": "",
+      "label": "Claude (CLI default)",
+      "kind": "claude",
+      "model_id": ""
+    },
+    {
+      "key": "claude-opus-4-8",
+      "label": "Claude Opus 4.8",
+      "kind": "claude",
+      "model_id": "claude-opus-4-8"
+    },
+    {
+      "key": "claude-sonnet-4-6",
+      "label": "Claude Sonnet 4.6",
+      "kind": "claude",
+      "model_id": "claude-sonnet-4-6"
+    },
+    {
+      "key": "claude-haiku-4-5-20251001",
+      "label": "Claude Haiku 4.5",
+      "kind": "claude",
+      "model_id": "claude-haiku-4-5-20251001"
+    },
+    {
+      "key": "claude-fable-5",
+      "label": "Claude Fable 5",
+      "kind": "claude",
+      "model_id": "claude-fable-5"
+    }
+  ]
+}

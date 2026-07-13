@@ -1,5 +1,7 @@
 # Market AI Aggregator — Initial Application Requirements
 
+> Historical MVP document. The implemented V2 interaction model and data contract are documented in [V2ProductDesign.md](V2ProductDesign.md). This file is retained as the original product and architecture record.
+
 ## 1. Overview
 
 A single-file browser-based application that generates AI-powered daily market briefings by sending customized prompts to the Anthropic API with web search enabled. Claude searches live sources (CME FedWatch, BLS, financial news) and synthesizes a structured briefing based on user-configured topics, watchlist, and style preferences.
